@@ -38,7 +38,13 @@ export async function signAndSubmitSorobanXdr(params: {
   });
   // Copy the raw XDR operations — this preserves the invocation and its auth
   // entries (source-account credentials stay valid: same source account).
-  for (const op of upstream.toEnvelope().v1().tx().operations()) {
+  // v17: TransactionEnvelope is a discriminated union — narrow to v1
+  const envelope = upstream.toEnvelope();
+  const v1Env = (envelope as any).v1 ? (envelope as any).v1() : undefined;
+  if (!v1Env) {
+    throw new Error('Unsupported transaction envelope type.');
+  }
+  for (const op of v1Env.tx().operations()) {
     builder.addOperation(op);
   }
   builder.addMemo(upstream.memo);

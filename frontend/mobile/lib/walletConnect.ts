@@ -293,23 +293,24 @@ export async function signXdrPayload(xdrString: string): Promise<string> {
   if (authEntries) {
     const networkIdBytes = await sha256(new TextEncoder().encode(network.networkPassphrase));
 
-    for (const parsed of authEntries) {
-      const credentials = parsed.credentials();
+    for (let i = 0; i < authEntries.length; i++) {
+      const parsed = authEntries[i];
+      const credentials = parsed.credentials;
       if (
-        credentials.switch().value !== xdr.SorobanCredentialsType.sorobanCredentialsAddress().value
+        credentials.type !== 'sorobanCredentialsAddress'
       ) {
         continue;
       }
 
-      const addressCredentials = credentials.address();
-      const contractAddress = Address.fromScAddress(addressCredentials.address()).toString();
+      const addressCredentials = credentials.address;
+      const contractAddress = Address.fromScAddress(addressCredentials.address).toString();
       const currentNonce = await getWalletNonce(rpc, contractAddress, network.networkPassphrase, feePayerKeypair.publicKey());
 
       const preimage = xdr.HashIdPreimage.envelopeTypeSorobanAuthorization(
         new xdr.HashIdPreimageSorobanAuthorization({
           networkId: Buffer.from(networkIdBytes),
-          nonce: addressCredentials.nonce(),
-          invocation: parsed.rootInvocation(),
+          nonce: addressCredentials.nonce,
+          invocation: parsed.rootInvocation,
           signatureExpirationLedger: validUntilLedger,
         })
       );
@@ -330,16 +331,17 @@ export async function signXdrPayload(xdrString: string): Promise<string> {
         sigElements.push(nativeToScVal(currentNonce, { type: 'u64' }));
       }
 
-      parsed.credentials(
-        xdr.SorobanCredentials.sorobanCredentialsAddress(
+      authEntries[i] = new xdr.SorobanAuthorizationEntry({
+        credentials: xdr.SorobanCredentials.sorobanCredentialsAddress(
           new xdr.SorobanAddressCredentials({
-            address: addressCredentials.address(),
-            nonce: addressCredentials.nonce(),
+            address: addressCredentials.address,
+            nonce: addressCredentials.nonce,
             signatureExpirationLedger: validUntilLedger,
             signature: xdr.ScVal.scvVec(sigElements),
           })
-        )
-      );
+        ),
+        rootInvocation: parsed.rootInvocation,
+      });
     }
   }
 
@@ -352,7 +354,7 @@ export async function signXdrPayload(xdrString: string): Promise<string> {
     .addOperation(
       Operation.invokeHostFunction({
         func: invokeOp.func,
-        auth: authEntries ?? [],
+        auth: authEntries?.map((e) => e) ?? [],
         source: invokeOp.source,
       })
     )

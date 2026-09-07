@@ -321,7 +321,10 @@ describe('attachRecoverySignatures', () => {
 
     const unsigned = tx.toXDR();
     tx.sign(keypair);
-    const signature = tx.signatures[0]!.signature().toString('base64');
+    // v17: Signature.toString() returns hex (no prefix); convert hex→bytes→base64
+    const hexSig = tx.signatures[0]!.signature.toString();
+    const sigBytes = Uint8Array.from(hexSig.match(/.{2}/g)!.map((b) => parseInt(b, 16)));
+    const signature = Buffer.from(sigBytes).toString('base64');
 
     return { xdr: unsigned, signerKey: keypair.publicKey(), signature };
   }
