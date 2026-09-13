@@ -113,8 +113,9 @@ function buildBody(
   type: 'received' | 'sent' | 'confirmed',
   amount: string,
   asset: string,
+  forceHide = false,
 ): string {
-  const hideAmount = _isAppLocked || getHiddenAmounts();
+  const hideAmount = forceHide || _isAppLocked || getHiddenAmounts();
 
   if (hideAmount) {
     switch (type) {
@@ -171,6 +172,11 @@ export async function fireTransferNotification(params: {
   txId?: string;
   /** Stellar transaction hash, for a future per-transaction screen. */
   hash?: string;
+  /**
+   * Treat the wallet as locked for this one notification. The background check
+   * passes it: the app is closed, so the lock flag the layout keeps is stale.
+   */
+  hideAmount?: boolean;
 }): Promise<void> {
   await hydrateNotifPrefs();
 
@@ -184,11 +190,11 @@ export async function fireTransferNotification(params: {
         ? 'Payment sent'
         : 'Transaction confirmed';
 
-  const body = buildBody(params.type, params.amount, params.asset);
+  const body = buildBody(params.type, params.amount, params.asset, params.hideAmount);
 
   const counterparty = params.counterparty;
   const subtitle =
-    counterparty && !_isAppLocked
+    counterparty && !_isAppLocked && !params.hideAmount
       ? `${counterpartyPreposition(params.type)} ${shortenAddress(counterparty)}`
       : undefined;
 

@@ -130,6 +130,10 @@ const config: ExpoConfig = {
       },
     ],
     'expo-secure-store',
+    // Periodic background check for payments, so a notification can arrive
+    // without the app being opened. Android runs it through WorkManager; the
+    // plugin adds the iOS background-processing entitlement.
+    'expo-background-task',
     [
       'expo-camera',
       {

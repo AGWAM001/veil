@@ -13,5 +13,8 @@
  * Nothing else belongs here. Side effects first, then hand over.
  */
 import './lib/polyfills';
+// Defines the background payment check. Android may start the JS runtime just
+// to run it, so it has to exist before any screen mounts.
+import './lib/backgroundActivity';
 
 import 'expo-router/entry';

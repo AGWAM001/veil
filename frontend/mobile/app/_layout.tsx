@@ -22,6 +22,7 @@ import { useNotifications } from '../hooks/useNotifications';
 import { useOutboxReplay } from '../hooks/useOutboxReplay';
 import { ConnectivityProvider, useConnectivity } from '../lib/connectivity';
 import { hydrateNetwork } from '../lib/network';
+import { registerActivityCheck } from '../lib/backgroundActivity';
 import { hydrateLockSettings } from '../lib/appLock';
 import {
   configureNotificationChannel,
@@ -75,6 +76,9 @@ export default function RootLayout() {
     // before the first notification is posted.
     void configureNotificationChannel();
     void requestNotificationPermissions();
+    // Check for payments while the app is closed, so a notification does not
+    // wait for the next time the user opens it.
+    void registerActivityCheck();
   }, []);
 
   // Keep the splash screen up (render nothing) until the fonts resolve — either
