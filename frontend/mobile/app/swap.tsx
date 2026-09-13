@@ -15,7 +15,8 @@ import { SuccessAnimation } from '../components/SuccessAnimation';
 import { getSoroswapQuote, buildSoroswapSwapXdr, ensureSwapOutTrustline, resolveTokenAddress, type SwapQuote } from '../lib/soroswap';
 import { getSdexQuote, sdexSwap, sdexSupported } from '../lib/sdexSwap';
 import { fetchContractAssetBalance, getFeePayerAddress } from '../lib/activity';
-import { getFeePayerXlm, isWalletDeployed, sendAssetFromContract, type FeePayerXlm } from '../lib/contractSpend';
+import { getFeePayerXlm, sendAssetFromContract, type FeePayerXlm } from '../lib/contractSpend';
+import { deployWalletIfNeeded } from '../lib/deployWallet';
 import { useWallet } from '../components/WalletProvider';
 import { getNetwork } from '../lib/network';
 import { signAndSubmitSorobanXdr } from '../lib/sorobanTx';
@@ -219,10 +220,9 @@ export default function SwapScreen() {
     const inContract = await fetchContractAssetBalance(walletAddr);
     if (inContract < shortfall) return;
 
-    // `__check_auth` cannot run against an undeployed contract; deploy first.
-    if (!(await isWalletDeployed(walletAddr))) {
-      await wallet.deploy(signerSecret);
-    }
+    // `__check_auth` cannot run against an undeployed contract; deploy first,
+    // with the public key the address was derived from.
+    await deployWalletIfNeeded(wallet.deploy, walletAddr);
 
     const move = (Math.ceil(shortfall * 1e7) / 1e7).toFixed(7);
     setStep('signing');

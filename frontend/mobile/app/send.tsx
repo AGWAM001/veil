@@ -17,9 +17,9 @@ import type { Contact } from '../hooks/useContacts';
 import { requireSigner } from '../lib/signer';
 import { requirePasskey } from '../lib/passkey';
 import { fetchContractAssetBalance } from '../lib/activity';
-import { sendAssetFromContract, getFeePayerSpendableXlm, isWalletDeployed } from '../lib/contractSpend';
-import { getSignerSecret } from '../lib/walletStore';
+import { sendAssetFromContract, getFeePayerSpendableXlm } from '../lib/contractSpend';
 import { useWallet } from '../components/WalletProvider';
+import { deployWalletIfNeeded } from '../lib/deployWallet';
 import { sendPayment } from '../lib/sendPayment';
 import { truncateAddress } from '../components/ui/AddressChip';
 import { getWalletAddress } from '../lib/walletStore';
@@ -231,11 +231,11 @@ export default function SendScreen() {
         if (shouldUseContract) {
           // The wallet contract must exist on-chain before __check_auth can run.
           // Creation computed the address counterfactually — deploy lazily here.
-          if (!(await isWalletDeployed(stored))) {
-            const secret = await getSignerSecret();
-            if (!secret) throw new Error('No fee-payer key on this device to pay for deployment.');
-            await wallet.deploy(secret);
-          }
+          // With the key the address was derived from, resolved from the
+          // secure store or the on-chain recovery entries — see
+          // lib/deployWallet.ts. The SDK alone looked in one storage slot a
+          // recovered wallet never wrote, and refused.
+          await deployWalletIfNeeded(wallet.deploy, stored);
           setStep('submitting');
           const hash = await sendAssetFromContract(stored, recipient.trim(), amount, spendAsset);
           setHash(hash);

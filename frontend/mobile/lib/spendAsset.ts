@@ -1,13 +1,10 @@
 import { fetchContractAssetBalance } from './activity';
-import {
-  getFeePayerSpendableXlm,
-  isWalletDeployed,
-  sendAssetFromContract,
-} from './contractSpend';
+import { getFeePayerSpendableXlm, sendAssetFromContract } from './contractSpend';
+import { deployWalletIfNeeded, type DeployFn } from './deployWallet';
 import { requirePasskey } from './passkey';
 import { sendPayment } from './sendPayment';
 import { requireSigner } from './signer';
-import { getSignerSecret, getWalletAddress } from './walletStore';
+import { getWalletAddress } from './walletStore';
 
 /**
  * Send an asset, choosing the source the way the send screen does.
@@ -30,7 +27,7 @@ export async function spendAsset(params: {
   amount: string;
   /** Omit for native XLM. */
   asset?: { code: string; issuer: string };
-  deploy: (secret: string) => Promise<unknown>;
+  deploy: DeployFn;
 }): Promise<string> {
   const { to, amount, asset, deploy } = params;
   const amountNumber = Number(amount);
@@ -45,11 +42,9 @@ export async function spendAsset(params: {
     // Prefer the contract when it can cover the amount: it is the wallet the
     // user believes they are spending from, and the fee payer is plumbing.
     if (contractBalance > 0 && amountNumber <= contractBalance) {
-      if (!(await isWalletDeployed(stored))) {
-        const secret = await getSignerSecret();
-        if (!secret) throw new Error('No fee-payer key on this device to pay for deployment.');
-        await deploy(secret);
-      }
+      // With the public key it was made from, resolved and checked against the
+      // address — see lib/deployWallet.ts for why the SDK alone could not.
+      await deployWalletIfNeeded(deploy, stored);
       // The passkey prompt raised inside this call IS the security gate — it
       // signs the Soroban authorization entry that __check_auth verifies on
       // chain, rather than merely proving presence.
