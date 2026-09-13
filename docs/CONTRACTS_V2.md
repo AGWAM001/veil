@@ -135,7 +135,7 @@ funded by the award.
 
 ## 8. Other open items from mainnet testing (September 2026)
 
-- [ ] **Next community APK** must include: `2370245` send balance per source, `6a4ba72`
+- [x] **Community APK built 2026-09-13** (versionCode 2, EAS build `0368e19f`), includes: `2370245` send balance per source, `6a4ba72`
       PIN-only lockout + balance error, `bafda2b` swap from smart wallet, `4937b83` all-asset
       balance card, `df0dea3` spending from an undeployed smart wallet, `e203ae3` payout
       provider not named, `4e07eac` Earn per-asset deposits + mainnet pool, `76fdd79`
