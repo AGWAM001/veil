@@ -17,7 +17,7 @@ import type { Contact } from '../hooks/useContacts';
 import { requireSigner } from '../lib/signer';
 import { requirePasskey } from '../lib/passkey';
 import { fetchContractAssetBalance } from '../lib/activity';
-import { sendAssetFromContract, getFeePayerSpendableXlm } from '../lib/contractSpend';
+import { sendAssetFromContract, getFeePayerSpendableXlm, getFeePayerXlm, type FeePayerXlm } from '../lib/contractSpend';
 import { useWallet } from '../components/WalletProvider';
 import { deployWalletIfNeeded } from '../lib/deployWallet';
 import { sendPayment } from '../lib/sendPayment';
@@ -87,6 +87,11 @@ export default function SendScreen() {
    */
   const [contractHeld, setContractHeld] = useState<number | null>(null);
   const [fromContract, setFromContract] = useState(false);
+  /**
+   * The spending account's XLM with its actual reserve. `null` until read, and
+   * ignored if the read failed (it zeroes out rather than throwing).
+   */
+  const [spendingXlm, setSpendingXlm] = useState<FeePayerXlm | null>(null);
 
   useEffect(() => {
     let alive = true;
@@ -139,6 +144,17 @@ export default function SendScreen() {
     return () => { alive = false; };
   }, [contractAddr, selected?.code, selected?.issuer, selected?.native]);
 
+  useEffect(() => {
+    if (!selected?.native) return;
+    let alive = true;
+    void getFeePayerXlm().then((x) => {
+      if (alive) setSpendingXlm(x);
+    });
+    return () => {
+      alive = false;
+    };
+  }, [selected?.native, holdings]);
+
   const editable = step === 'form' || step === 'error';
   const amtNum = Number(amount);
   const nonNative = !!selected && !selected.native;
@@ -164,12 +180,19 @@ export default function SendScreen() {
    */
   const classicHeld = contractHeld === null ? null : Math.max(0, balanceNum - contractHeld);
 
-  // Native sends must leave ~1.5 XLM for the base reserve + fee.
+  // A native send must leave the account's reserve behind: (2 + subentries) x
+  // 0.5 XLM, read from the account. A flat 1.5 understated it — the recovery
+  // entries alone are three subentries — so "Max" offered XLM the network would
+  // refuse. The flat figure remains only as the fallback while that read is out.
+  const nativeSpendable = (classic: number) =>
+    spendingXlm && spendingXlm.balance > 0
+      ? Math.min(classic, spendingXlm.spendable)
+      : Math.max(0, classic - 1.5);
   const spendable = contractSource
     ? held
     : selected && classicHeld !== null
       ? selected.native
-        ? Math.max(0, classicHeld - 1.5)
+        ? nativeSpendable(classicHeld)
         : classicHeld
       : null;
   const insufficient = spendable !== null && amtNum > 0 && amtNum > spendable;
@@ -352,7 +375,15 @@ export default function SendScreen() {
                 accessibilityRole="button"
                 style={[styles.sourcePill, !fromContract && styles.sourcePillActive]}
               >
-                <Text style={[styles.sourceText, !fromContract && styles.sourceTextActive]}>Spending</Text>
+                {/* Both sides carry their balance. Only the smart wallet did, so
+                    a tester holding 8 could see the 2 in the contract but had to
+                    work out the 6 in spending for themselves. */}
+                <Text style={[styles.sourceText, !fromContract && styles.sourceTextActive]}>
+                  Spending
+                  {classicHeld !== null
+                    ? ` · ${mask(classicHeld.toLocaleString('en-US', { maximumFractionDigits: 2 }))} ${selected?.code ?? 'XLM'}`
+                    : ''}
+                </Text>
               </Pressable>
               <Pressable
                 onPress={() => setFromContract(true)}
@@ -360,7 +391,7 @@ export default function SendScreen() {
                 style={[styles.sourcePill, fromContract && styles.sourcePillActive]}
               >
                 <Text style={[styles.sourceText, fromContract && styles.sourceTextActive]}>
-                  Smart wallet · {held.toLocaleString('en-US', { maximumFractionDigits: 2 })}{' '}
+                  Smart wallet · {mask(held.toLocaleString('en-US', { maximumFractionDigits: 2 }))}{' '}
                   {selected?.code ?? 'XLM'}
                 </Text>
               </Pressable>
@@ -401,7 +432,11 @@ export default function SendScreen() {
               if (shown === null) return 'Checking balance…';
               return insufficient
                 ? `Not enough ${assetCode} — ${contractSource ? 'smart wallet has' : 'spending has'} ${mask(fmtAmount(shown))}`
-                : `Balance ${mask(fmtAmount(shown))} ${assetCode}`;
+                : !contractSource && selected?.native && classicHeld !== null && classicHeld - Number(shown) > 0.0001
+                  ? // Say both: the account holds more than it can send, and
+                    // quoting only one of the two reads as a wrong balance.
+                    `Balance ${mask(fmtAmount(classicHeld.toFixed(4)))} ${assetCode} · ${mask(fmtAmount(shown))} can be sent`
+                  : `Balance ${mask(fmtAmount(shown))} ${assetCode}`;
             })()}
           </Text>
           <View style={styles.chips}>
