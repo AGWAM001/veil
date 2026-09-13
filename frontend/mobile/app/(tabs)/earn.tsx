@@ -1,12 +1,25 @@
 import { errorMessage } from '../../lib/errorMessage';
-import { ScreenScaffold } from '@/components/ScreenScaffold';
 import { Keypair } from '@stellar/stellar-sdk';
 import { useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import {
+  ActivityIndicator,
+  KeyboardAvoidingView,
+  Platform,
+  Pressable,
+  RefreshControl,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
 
+import { Button, Card, Screen } from '../../components/ui';
 import { useTheme } from '../../hooks/useTheme';
+import { useHiddenAmounts } from '../../hooks/useHiddenAmounts';
 import type { ThemeColors } from '../../lib/theme';
+import { fontFamily, typography } from '../../theme/typography';
 
 import {
   buildBlendSupplyXdr,
@@ -25,15 +38,23 @@ import { signAndSubmitSorobanXdr } from '../../lib/sorobanTx';
 import { getSignerSecret, getWalletAddress } from '../../lib/walletStore';
 
 /**
- * Earn — supply idle assets to Blend lending pools and redeem them.
+ * Earn — lend idle USDC or XLM to Blend lending pools and redeem it.
  *
  * Deposits run from the spending account. When the money is in the smart
- * wallet instead, the shortfall is moved across first (see lib/earnFunding.ts),
- * so what the user can deposit is what the wallet holds, not what one of its
- * two accounts happens to hold.
+ * wallet instead, the shortfall is moved across first (lib/earnFunding.ts), so
+ * what the user can deposit is what the wallet holds, not what one of its two
+ * accounts happens to hold.
+ *
+ * Built from the shared brand primitives (Screen, Card, Button, the Lora /
+ * Anton / Inter / Inconsolata type roles) like the other tabs. It used to sit in
+ * the generic ScreenScaffold, a system-font page with a back bar that no other
+ * tab has.
  */
 
 const STROOPS = 1e7;
+
+/** Clears the floating tab bar and its raised centre button. */
+const TAB_BAR_CLEARANCE = 132;
 
 type EarnStep =
   | 'pools'
@@ -45,16 +66,16 @@ type EarnStep =
   | 'withdraw-done'
   | 'error';
 
-function toUnits(stroops: string, fractionDigits: number): string {
-  return (Number(stroops) / STROOPS).toFixed(fractionDigits);
+function toUnits(stroops: string): number {
+  return Number(stroops) / STROOPS;
 }
 
 function formatApy(apy: number): string {
   return `${(apy * 100).toFixed(2)}%`;
 }
 
-function formatAmount(n: number): string {
-  return n.toLocaleString('en-US', { maximumFractionDigits: 4 });
+function formatAmount(n: number, digits = 4): string {
+  return n.toLocaleString('en-US', { maximumFractionDigits: digits });
 }
 
 /** Map a raw failure onto something the user can act on. */
@@ -65,7 +86,7 @@ function describeFailure(error: unknown): string {
     return 'Passkey cancelled. Please try again.';
   }
   if (lower.includes('utilization') || lower.includes('cap')) {
-    return 'Pool is at capacity — deposits temporarily unavailable.';
+    return 'This pool is full right now, so it cannot take deposits. Try again later.';
   }
   return message;
 }
@@ -75,6 +96,7 @@ type Selected = { pool: BlendPool; reserve: BlendReserve };
 export default function EarnRoute() {
   const router = useRouter();
   const { colors } = useTheme();
+  const { mask } = useHiddenAmounts();
   const styles = useMemo(() => createStyles(colors), [colors]);
   // Subscribed rather than read once at module load: the network is a runtime
   // choice, and everything on this screen belongs to exactly one chain.
@@ -87,6 +109,7 @@ export default function EarnRoute() {
   const [pools, setPools] = useState<BlendPool[]>([]);
   const [positions, setPositions] = useState<BlendPosition[]>([]);
   const [loadingPools, setLoadingPools] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
 
   const [selected, setSelected] = useState<Selected | null>(null);
   const [balances, setBalances] = useState<EarnBalances | null>(null);
@@ -139,7 +162,13 @@ export default function EarnRoute() {
     return () => {
       cancelled = true;
     };
-  }, [router, loadData]);
+  }, [router, loadData, network.name]);
+
+  const onRefresh = useCallback(async () => {
+    if (!accountAddress) return;
+    setRefreshing(true);
+    await loadData(accountAddress).finally(() => setRefreshing(false));
+  }, [accountAddress, loadData]);
 
   function openDeposit(pool: BlendPool, reserve: BlendReserve) {
     setSelected({ pool, reserve });
@@ -151,8 +180,8 @@ export default function EarnRoute() {
 
   const available = balances ? balances.inSpending + balances.inWallet : null;
   const parsedAmount = parseFloat(depositAmount);
-  const depositIsValid =
-    parsedAmount > 0 && (available === null || parsedAmount <= available + 1e-7);
+  const overBalance = parsedAmount > 0 && available !== null && parsedAmount > available + 1e-7;
+  const depositIsValid = parsedAmount > 0 && !overBalance;
 
   // ── Deposit ──
   async function handleDeposit() {
@@ -240,328 +269,276 @@ export default function EarnRoute() {
     }
   }
 
-  const showLists = step === 'pools';
-  const poolName = (poolId: string) => pools.find((p) => p.id === poolId)?.name ?? `${poolId.slice(0, 6)}…`;
+  const poolName = (poolId: string) =>
+    pools.find((p) => p.id === poolId)?.name ?? `${poolId.slice(0, 6)}…`;
+  const bestApy = pools.flatMap((p) => p.reserves).reduce((m, r) => Math.max(m, r.supplyApy), 0);
 
   return (
-    <ScreenScaffold
-      eyebrow="Earn"
-      title="Yield on-chain"
-      description="Lend USDC or XLM to Blend lending pools and earn interest. Withdraw any time."
-      backHref="/dashboard"
-      backLabel="Dashboard"
-    >
-      {showLists && positions.length > 0 ? (
-        <View style={styles.section}>
-          <Text style={styles.sectionLabel}>Your deposits</Text>
-          {positions.map((position) => (
-            <View key={`${position.poolId}-${position.asset}`} style={styles.card}>
-              <View style={styles.cardHeader}>
-                <Text style={styles.cardTitle}>{position.code ?? `${position.asset.slice(0, 6)}…`}</Text>
-                <Text style={styles.cardMeta}>{poolName(position.poolId)} pool</Text>
-              </View>
-              <Row
-                label="Current value"
-                value={`${toUnits(position.deposited, 4)} ${position.code ?? ''}`.trim()}
-                accent
-              />
-              <Pressable
-                accessibilityRole="button"
-                onPress={() => {
-                  setSelectedPosition(position);
-                  setStep('withdraw-form');
-                }}
-                style={({ pressed }) => [styles.ghostButton, pressed && styles.pressed]}
-              >
-                <Text style={styles.ghostButtonText}>Withdraw</Text>
-              </Pressable>
-            </View>
-          ))}
-        </View>
-      ) : null}
+    <Screen edges={['top']}>
+      <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+        <ScrollView
+          contentContainerStyle={styles.content}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+          refreshControl={
+            step === 'pools' ? (
+              <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.accent} />
+            ) : undefined
+          }
+        >
+          <View style={styles.header}>
+            <Text style={[typography.accent, styles.eyebrow]}>Earn</Text>
+            <Text style={[typography.heading, styles.title]}>Put idle money to work</Text>
+            <Text style={styles.lede}>
+              Lend USDC or XLM to Blend and earn interest. Nothing is locked, withdraw any time.
+            </Text>
+          </View>
 
-      {showLists ? (
-        <View style={styles.section}>
-          <Text style={styles.sectionLabel}>Pools</Text>
+          {step === 'pools' ? (
+            <>
+              {!loadingPools && bestApy > 0 ? (
+                <Card variant="md" style={styles.hero}>
+                  <Text style={[typography.accent, styles.heroLabel]}>Best rate today</Text>
+                  <Text style={styles.heroRate}>{formatApy(bestApy)}</Text>
+                  <Text style={styles.muted}>a year, paid by borrowers. The rate moves with demand.</Text>
+                </Card>
+              ) : null}
 
-          {loadingPools ? (
-            <View style={styles.centered}>
-              <ActivityIndicator color={colors.accent} />
-            </View>
-          ) : pools.length === 0 ? (
-            <View style={styles.card}>
-              <Text style={styles.cardTitle}>Earn isn't available here yet</Text>
-              <Text style={styles.cardMeta}>
-                There are no lending pools set up for {network.displayName} in this version of the app.
-              </Text>
-            </View>
-          ) : (
-            pools.map((pool) => (
-              <View key={pool.id} style={styles.card}>
-                <View style={styles.cardHeader}>
-                  <Text style={styles.cardTitle}>{pool.name}</Text>
-                  <Text style={styles.cardMeta}>Blend pool</Text>
+              {positions.length > 0 ? (
+                <View style={styles.section}>
+                  <Text style={[typography.accent, styles.sectionLabel]}>Your deposits</Text>
+                  {positions.map((position) => (
+                    <Card key={`${position.poolId}-${position.asset}`} style={styles.card}>
+                      <View style={styles.rowBetween}>
+                        <View>
+                          <Text style={styles.assetCode}>{position.code ?? `${position.asset.slice(0, 6)}…`}</Text>
+                          <Text style={styles.muted}>{poolName(position.poolId)} pool</Text>
+                        </View>
+                        <Text style={styles.value}>
+                          {mask(formatAmount(toUnits(position.deposited)))} {position.code ?? ''}
+                        </Text>
+                      </View>
+                      <Button
+                        label="Withdraw"
+                        variant="ghost"
+                        onPress={() => {
+                          setSelectedPosition(position);
+                          setStep('withdraw-form');
+                        }}
+                      />
+                    </Card>
+                  ))}
                 </View>
-                {pool.reserves.map((reserve) => (
-                  <View key={reserve.assetId} style={styles.reserveRow}>
-                    <View style={styles.reserveText}>
-                      <Text style={styles.rowValue}>{reserve.code}</Text>
-                      <Text style={styles.apy}>{formatApy(reserve.supplyApy)} APY</Text>
-                    </View>
+              ) : null}
+
+              <View style={styles.section}>
+                <Text style={[typography.accent, styles.sectionLabel]}>Pools</Text>
+
+                {loadingPools ? (
+                  <View style={styles.centered}>
+                    <ActivityIndicator color={colors.accent} />
+                  </View>
+                ) : pools.length === 0 ? (
+                  <Card style={styles.card}>
+                    <Text style={[typography.heading, styles.cardTitle]}>Couldn't load the pools</Text>
+                    <Text style={styles.muted}>
+                      The lending pools on {network.displayName} did not answer. Pull down to try again.
+                    </Text>
+                  </Card>
+                ) : (
+                  pools.map((pool) => (
+                    <Card key={pool.id} style={styles.card}>
+                      <View style={styles.rowBetween}>
+                        <Text style={[typography.heading, styles.cardTitle]}>{pool.name} pool</Text>
+                        <Text style={[typography.accent, styles.badge]}>Blend</Text>
+                      </View>
+                      {pool.reserves.map((reserve) => (
+                        <View key={reserve.assetId} style={styles.reserveRow}>
+                          <View style={styles.reserveText}>
+                            <Text style={styles.assetCode}>{reserve.code}</Text>
+                            <Text style={styles.apy}>{formatApy(reserve.supplyApy)} APY</Text>
+                          </View>
+                          <Button
+                            label="Deposit"
+                            fullWidth={false}
+                            style={styles.smallButton}
+                            onPress={() => openDeposit(pool, reserve)}
+                          />
+                        </View>
+                      ))}
+                    </Card>
+                  ))
+                )}
+              </View>
+            </>
+          ) : null}
+
+          {step === 'deposit-form' && selected ? (
+            <View style={styles.section}>
+              <Card style={styles.card}>
+                <Text style={[typography.accent, styles.sectionLabel]}>
+                  Deposit {selected.reserve.code} · {formatApy(selected.reserve.supplyApy)} APY
+                </Text>
+                <View style={styles.amountRow}>
+                  <TextInput
+                    style={styles.amountInput}
+                    value={depositAmount}
+                    onChangeText={setDepositAmount}
+                    placeholder="0"
+                    placeholderTextColor={colors.textFaint}
+                    keyboardType="decimal-pad"
+                    accessibilityLabel="Deposit amount"
+                    autoFocus
+                  />
+                  <Text style={styles.amountUnit}>{selected.reserve.code}</Text>
+                </View>
+                {available === null ? (
+                  <Text style={styles.muted}>Checking your balance…</Text>
+                ) : (
+                  <View style={styles.rowBetween}>
+                    <Text style={[styles.muted, overBalance && styles.warning]}>
+                      {overBalance ? 'More than your wallet holds · ' : 'Available '}
+                      {mask(formatAmount(available))} {selected.reserve.code}
+                    </Text>
                     <Pressable
                       accessibilityRole="button"
-                      accessibilityLabel={`Deposit ${reserve.code} in ${pool.name}`}
-                      onPress={() => openDeposit(pool, reserve)}
-                      style={({ pressed }) => [styles.smallButton, pressed && styles.pressed]}
+                      accessibilityLabel="Use the full available amount"
+                      onPress={() =>
+                        setDepositAmount((Math.floor(available * STROOPS) / STROOPS).toString())
+                      }
+                      hitSlop={8}
                     >
-                      <Text style={styles.primaryButtonText}>Deposit</Text>
+                      <Text style={styles.link}>Max</Text>
                     </Pressable>
                   </View>
-                ))}
-              </View>
-            ))
-          )}
-        </View>
-      ) : null}
-
-      {step === 'deposit-form' && selected ? (
-        <View style={styles.section}>
-          <View style={styles.card}>
-            <Text style={styles.cardMeta}>
-              {selected.pool.name} pool · {selected.reserve.code} · est. APY{' '}
-              {formatApy(selected.reserve.supplyApy)}
-            </Text>
-            <View style={styles.amountRow}>
-              <TextInput
-                style={styles.amountInput}
-                value={depositAmount}
-                onChangeText={setDepositAmount}
-                placeholder="0.00"
-                placeholderTextColor={colors.textFaint}
-                keyboardType="decimal-pad"
-                accessibilityLabel="Deposit amount"
-              />
-              <Text style={styles.rowValue}>{selected.reserve.code}</Text>
-            </View>
-            {available === null ? (
-              <Text style={styles.cardMeta}>Checking your balance…</Text>
-            ) : (
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel="Use the full available amount"
-                onPress={() => setDepositAmount((Math.floor(available * STROOPS) / STROOPS).toString())}
-              >
-                <Text style={styles.cardMeta}>
-                  Available {formatAmount(available)} {selected.reserve.code}{' '}
-                  <Text style={styles.link}>Use max</Text>
-                </Text>
-              </Pressable>
-            )}
-            {parsedAmount > 0 && available !== null && parsedAmount > available + 1e-7 ? (
-              <Text style={styles.warning}>That is more than your wallet holds.</Text>
-            ) : null}
-            {parsedAmount > 0 ? (
-              <Text style={styles.cardMeta}>
-                Est. earned in 1 year{' '}
-                <Text style={styles.accent}>
-                  {formatAmount(parsedAmount * selected.reserve.supplyApy)} {selected.reserve.code}
-                </Text>
+                )}
+                {parsedAmount > 0 && !overBalance ? (
+                  <Text style={styles.muted}>
+                    About{' '}
+                    <Text style={styles.positive}>
+                      {formatAmount(parsedAmount * selected.reserve.supplyApy)} {selected.reserve.code}
+                    </Text>{' '}
+                    a year at today's rate.
+                  </Text>
+                ) : null}
+              </Card>
+              <Text style={styles.footnote}>
+                In the {selected.pool.name} pool on Blend. Withdrawals return to your spending account.
               </Text>
-            ) : null}
-            <Text style={styles.cardMeta}>
-              The rate moves with how much the pool lends out. Withdrawals return to your spending
-              account.
-            </Text>
-          </View>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityState={{ disabled: !depositIsValid }}
-            disabled={!depositIsValid}
-            onPress={handleDeposit}
-            style={({ pressed }) => [
-              styles.primaryButton,
-              !depositIsValid && styles.disabled,
-              pressed && styles.pressed,
-            ]}
-          >
-            <Text style={styles.primaryButtonText}>Deposit &amp; earn</Text>
-          </Pressable>
-          <Pressable
-            accessibilityRole="button"
-            onPress={() => setStep('pools')}
-            style={({ pressed }) => [styles.ghostButton, pressed && styles.pressed]}
-          >
-            <Text style={styles.ghostButtonText}>Cancel</Text>
-          </Pressable>
-        </View>
-      ) : null}
+              <Button label="Deposit" disabled={!depositIsValid} onPress={handleDeposit} />
+              <Button label="Cancel" variant="ghost" onPress={() => setStep('pools')} />
+            </View>
+          ) : null}
 
-      {step === 'withdraw-form' && selectedPosition ? (
-        <View style={styles.section}>
-          <View style={styles.card}>
-            <Text style={styles.cardTitle}>
-              Withdraw {selectedPosition.code ?? 'deposit'} from {poolName(selectedPosition.poolId)}
-            </Text>
-            <Row
-              label="Current value"
-              value={`${toUnits(selectedPosition.deposited, 4)} ${selectedPosition.code ?? ''}`.trim()}
-              accent
-            />
-            <Text style={styles.cardMeta}>
-              Everything in this deposit, including interest, returns to your spending account.
-            </Text>
-          </View>
-          <Pressable
-            accessibilityRole="button"
-            onPress={handleWithdraw}
-            style={({ pressed }) => [styles.primaryButton, pressed && styles.pressed]}
-          >
-            <Text style={styles.primaryButtonText}>Withdraw all</Text>
-          </Pressable>
-          <Pressable
-            accessibilityRole="button"
-            onPress={() => setStep('pools')}
-            style={({ pressed }) => [styles.ghostButton, pressed && styles.pressed]}
-          >
-            <Text style={styles.ghostButtonText}>Cancel</Text>
-          </Pressable>
-        </View>
-      ) : null}
+          {step === 'withdraw-form' && selectedPosition ? (
+            <View style={styles.section}>
+              <Card style={styles.card}>
+                <Text style={[typography.accent, styles.sectionLabel]}>
+                  Withdraw from {poolName(selectedPosition.poolId)}
+                </Text>
+                <Text style={styles.heroRate}>
+                  {mask(formatAmount(toUnits(selectedPosition.deposited)))} {selectedPosition.code ?? ''}
+                </Text>
+                <Text style={styles.muted}>
+                  Everything in this deposit, including interest, returns to your spending account.
+                </Text>
+              </Card>
+              <Button label="Withdraw all" onPress={handleWithdraw} />
+              <Button label="Cancel" variant="ghost" onPress={() => setStep('pools')} />
+            </View>
+          ) : null}
 
-      {step === 'depositing' || step === 'withdrawing' ? (
-        <View style={[styles.card, styles.centeredCard]}>
-          <ActivityIndicator color={colors.accent} />
-          <Text style={styles.cardTitle}>{progress}</Text>
-          <Text style={styles.cardMeta}>Keep the app open until this finishes.</Text>
-        </View>
-      ) : null}
+          {step === 'depositing' || step === 'withdrawing' ? (
+            <Card variant="md" style={styles.cardCentered}>
+              <ActivityIndicator color={colors.accent} />
+              <Text style={[typography.heading, styles.cardTitle]}>{progress}</Text>
+              <Text style={styles.muted}>Keep the app open until this finishes.</Text>
+            </Card>
+          ) : null}
 
-      {step === 'deposit-done' || step === 'withdraw-done' ? (
-        <View style={[styles.card, styles.centeredCard]}>
-          <Text style={styles.successMark}>✓</Text>
-          <Text style={styles.cardTitle}>
-            {step === 'deposit-done' ? 'Deposit successful' : 'Withdrawal successful'}
-          </Text>
-          {txHash ? <Text style={styles.hash}>{txHash}</Text> : null}
-          <Pressable
-            accessibilityRole="button"
-            onPress={() => {
-              setStep('pools');
-              setTxHash(null);
-            }}
-            style={({ pressed }) => [styles.primaryButton, pressed && styles.pressed]}
-          >
-            <Text style={styles.primaryButtonText}>Back to Earn</Text>
-          </Pressable>
-        </View>
-      ) : null}
+          {step === 'deposit-done' || step === 'withdraw-done' ? (
+            <Card variant="md" style={styles.cardCentered}>
+              <Text style={styles.successMark}>✓</Text>
+              <Text style={[typography.heading, styles.cardTitle]}>
+                {step === 'deposit-done' ? "You're earning" : 'Withdrawn'}
+              </Text>
+              {txHash ? (
+                <Text style={styles.hash} numberOfLines={1} ellipsizeMode="middle">
+                  {txHash}
+                </Text>
+              ) : null}
+              <Button
+                label="Back to Earn"
+                onPress={() => {
+                  setStep('pools');
+                  setTxHash(null);
+                }}
+              />
+            </Card>
+          ) : null}
 
-      {step === 'error' ? (
-        <View style={[styles.card, styles.centeredCard]}>
-          <Text style={styles.errorMark}>!</Text>
-          <Text style={styles.cardTitle}>Transaction failed</Text>
-          {errorMsg ? <Text style={styles.cardMeta}>{errorMsg}</Text> : null}
-          <Pressable
-            accessibilityRole="button"
-            onPress={() => setStep('pools')}
-            style={({ pressed }) => [styles.ghostButton, pressed && styles.pressed]}
-          >
-            <Text style={styles.ghostButtonText}>Try again</Text>
-          </Pressable>
-        </View>
-      ) : null}
-    </ScreenScaffold>
-  );
-}
-
-function Row({ label, value, accent }: { label: string; value: string; accent?: boolean }) {
-  const { colors } = useTheme();
-  const styles = useMemo(() => createStyles(colors), [colors]);
-  return (
-    <View style={styles.row}>
-      <Text style={styles.rowLabel}>{label}</Text>
-      <Text style={[styles.rowValue, accent && styles.accent]}>{value}</Text>
-    </View>
+          {step === 'error' ? (
+            <Card variant="md" style={styles.cardCentered}>
+              <Text style={styles.errorMark}>!</Text>
+              <Text style={[typography.heading, styles.cardTitle]}>That didn't go through</Text>
+              {errorMsg ? <Text style={[styles.muted, styles.center]}>{errorMsg}</Text> : null}
+              <Button label="Try again" variant="ghost" onPress={() => setStep('pools')} />
+            </Card>
+          ) : null}
+        </ScrollView>
+      </KeyboardAvoidingView>
+    </Screen>
   );
 }
 
 const createStyles = (colors: ThemeColors) =>
   StyleSheet.create({
-    section: { gap: 10, marginTop: 12 },
-    sectionLabel: {
-      color: colors.textMuted,
-      fontSize: 11,
-      fontWeight: '700',
-      letterSpacing: 1.4,
-      textTransform: 'uppercase',
-    },
-    card: {
-      padding: 18,
-      backgroundColor: colors.surface,
-      borderRadius: 14,
-      borderWidth: StyleSheet.hairlineWidth,
-      borderColor: colors.border,
-      gap: 8,
-    },
-    centeredCard: { alignItems: 'center', marginTop: 12 },
-    cardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline' },
-    cardTitle: { color: colors.textStrong, fontSize: 17, fontWeight: '600' },
-    cardMeta: { color: colors.textMuted, fontSize: 12, lineHeight: 18 },
-    apy: { color: colors.accent, fontSize: 13, fontWeight: '700' },
-    accent: { color: colors.positive },
-    link: { color: colors.accent, fontWeight: '700' },
-    warning: { color: colors.danger, fontSize: 12 },
-    row: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline', gap: 12 },
-    rowLabel: { color: colors.textMuted, fontSize: 13 },
-    rowValue: { color: colors.textPrimary, fontSize: 14, textAlign: 'right' },
+    flex: { flex: 1 },
+    content: { paddingBottom: TAB_BAR_CLEARANCE, gap: 20 },
+    header: { paddingTop: 16, gap: 6 },
+    eyebrow: { color: colors.accent },
+    title: { color: colors.textStrong },
+    lede: { fontFamily: fontFamily.body, fontSize: 15, lineHeight: 22, color: colors.textMuted },
+    hero: { gap: 4 },
+    heroLabel: { color: colors.textMuted, fontSize: 11 },
+    heroRate: { fontFamily: fontFamily.heading, fontSize: 40, lineHeight: 48, color: colors.accentText },
+    section: { gap: 12 },
+    sectionLabel: { color: colors.textMuted, fontSize: 11 },
+    card: { padding: 18, gap: 12 },
+    cardCentered: { padding: 18, gap: 12, alignItems: 'center' },
+    cardTitle: { color: colors.textStrong, fontSize: 20, lineHeight: 26 },
+    badge: { color: colors.accent, fontSize: 11 },
+    rowBetween: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
     reserveRow: {
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'space-between',
-      paddingTop: 10,
+      paddingTop: 12,
       borderTopWidth: StyleSheet.hairlineWidth,
       borderTopColor: colors.border,
     },
     reserveText: { gap: 2 },
+    assetCode: { fontFamily: fontFamily.bodySemiBold, fontSize: 16, color: colors.textPrimary },
+    apy: { fontFamily: fontFamily.bodyMedium, fontSize: 13, color: colors.positive },
+    value: { fontFamily: fontFamily.bodySemiBold, fontSize: 16, color: colors.textPrimary },
+    smallButton: { paddingVertical: 9, paddingHorizontal: 20 },
+    muted: { fontFamily: fontFamily.body, fontSize: 13, lineHeight: 19, color: colors.textMuted },
+    footnote: { fontFamily: fontFamily.body, fontSize: 12, lineHeight: 18, color: colors.textMuted },
+    positive: { fontFamily: fontFamily.bodySemiBold, color: colors.positive },
+    warning: { color: colors.danger },
+    link: { fontFamily: fontFamily.bodySemiBold, fontSize: 13, color: colors.accentText },
     amountRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
     amountInput: {
       flex: 1,
-      color: colors.textPrimary,
-      fontSize: 26,
-      paddingVertical: 6,
+      fontFamily: fontFamily.bodySemiBold,
+      fontSize: 34,
+      color: colors.textStrong,
+      paddingVertical: 4,
     },
-    primaryButton: {
-      marginTop: 6,
-      alignItems: 'center',
-      paddingVertical: 14,
-      borderRadius: 100,
-      backgroundColor: colors.accent,
-    },
-    smallButton: {
-      alignItems: 'center',
-      paddingVertical: 9,
-      paddingHorizontal: 18,
-      borderRadius: 100,
-      backgroundColor: colors.accent,
-    },
-    primaryButtonText: { color: colors.onAccent, fontSize: 15, fontWeight: '700' },
-    ghostButton: {
-      marginTop: 6,
-      alignItems: 'center',
-      paddingVertical: 12,
-      borderRadius: 100,
-      borderWidth: StyleSheet.hairlineWidth,
-      borderColor: colors.border,
-    },
-    ghostButtonText: { color: colors.textPrimary, fontSize: 14, fontWeight: '600' },
-    disabled: { opacity: 0.4 },
-    pressed: { opacity: 0.7 },
+    amountUnit: { fontFamily: fontFamily.accent, fontSize: 16, letterSpacing: 1, color: colors.textMuted },
     centered: { paddingVertical: 24, alignItems: 'center' },
-    successMark: { color: colors.positive, fontSize: 34, fontWeight: '700' },
-    errorMark: { color: colors.danger, fontSize: 34, fontWeight: '700' },
-    hash: {
-      color: colors.textMuted,
-      fontSize: 11,
-      textAlign: 'center',
-    },
+    center: { textAlign: 'center' },
+    successMark: { fontFamily: fontFamily.bodySemiBold, color: colors.positive, fontSize: 34 },
+    errorMark: { fontFamily: fontFamily.bodySemiBold, color: colors.danger, fontSize: 34 },
+    hash: { fontFamily: fontFamily.address, fontSize: 12, color: colors.textMuted, alignSelf: 'stretch', textAlign: 'center' },
   });
