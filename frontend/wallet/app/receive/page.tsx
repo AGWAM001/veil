@@ -313,13 +313,15 @@ export default function ReceivePage() {
             <div className="vw-recv-side">
               {contractAddress && <ContractRow address={contractAddress} />}
 
-              {/* Why anything sent here is not just sitting still. */}
+              {/* A pointer, not a promise. This used to say incoming funds start
+                  earning immediately, but nothing deposits on its own — idle USDC
+                  earns only once it is supplied from Earn. */}
               <div className="vw-recv-auto">
-                <p className="vw-label" style={{ color: 'var(--teal)' }}>Automatic</p>
-                <p className="vw-recv-auto__head">Incoming funds start earning immediately.</p>
+                <p className="vw-label" style={{ color: 'var(--teal)' }}>Earn</p>
+                <p className="vw-recv-auto__head">Put idle USDC to work.</p>
                 <p className="vw-recv-auto__body">
-                  Anything deposited here joins the Blend USDC pool. Nothing is locked up, and
-                  you withdraw whenever you like.
+                  Supply USDC to a Blend lending pool from Earn. Nothing is locked up, and you
+                  withdraw whenever you like.
                 </p>
               </div>
             </div>

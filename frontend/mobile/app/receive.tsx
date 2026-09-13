@@ -273,7 +273,9 @@ export default function ReceiveScreen() {
           </Pressable>
         )}
 
-        <Text style={styles.caption}>Incoming funds start earning automatically.</Text>
+        {/* Not "start earning automatically": nothing deposits on its own. Idle
+            USDC earns only after the user supplies it on the Earn tab. */}
+        <Text style={styles.caption}>Put idle USDC to work from the Earn tab.</Text>
       </View>
     </SafeAreaView>
   );
