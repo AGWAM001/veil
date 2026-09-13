@@ -14,8 +14,9 @@ import { TokenIcon } from '../components/TokenIcon';
 import { SuccessAnimation } from '../components/SuccessAnimation';
 import { getSoroswapQuote, buildSoroswapSwapXdr, ensureSwapOutTrustline, resolveTokenAddress, type SwapQuote } from '../lib/soroswap';
 import { getSdexQuote, sdexSwap, sdexSupported } from '../lib/sdexSwap';
-import { getFeePayerAddress } from '../lib/activity';
-import { getFeePayerXlm, type FeePayerXlm } from '../lib/contractSpend';
+import { fetchContractAssetBalance, getFeePayerAddress } from '../lib/activity';
+import { getFeePayerXlm, isWalletDeployed, sendAssetFromContract, type FeePayerXlm } from '../lib/contractSpend';
+import { useWallet } from '../components/WalletProvider';
 import { getNetwork } from '../lib/network';
 import { signAndSubmitSorobanXdr } from '../lib/sorobanTx';
 import { useNetwork } from '../hooks/useNetwork';
@@ -69,6 +70,25 @@ export default function SwapScreen() {
   // sum the smart wallet and the spending account, but a swap only ever touches
   // the latter — and most of what it holds can be locked as network reserve.
   const [feePayerXlm, setFeePayerXlm] = useState<FeePayerXlm | null>(null);
+  // XLM held by the smart wallet itself. A swap cannot spend it directly, but it
+  // can move it to the spending account first — see handleExecute. Without this
+  // a wallet holding 31 XLM offered 1.4 to swap, because 27 of them sat in the
+  // contract where the swap path never looked. `null` means not read yet.
+  const [contractXlm, setContractXlm] = useState<number | null>(null);
+  const { wallet } = useWallet();
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      const addr = await getWalletAddress().catch(() => null);
+      if (!addr?.startsWith('C')) {
+        if (alive) setContractXlm(0);
+        return;
+      }
+      const held = await fetchContractAssetBalance(addr).catch(() => null);
+      if (alive) setContractXlm(held);
+    })();
+    return () => { alive = false; };
+  }, []);
   useEffect(() => {
     let alive = true;
     getFeePayerXlm()
@@ -176,6 +196,51 @@ export default function SwapScreen() {
     };
   }, [amountIn, tokenIn.code, tokenOut.code, onTestnet]);
 
+  /**
+   * Make sure the spending account can cover an XLM swap, moving the shortfall
+   * out of the smart wallet when it cannot.
+   *
+   * Needed = the amount, plus 0.5 XLM reserve if this swap opens a trustline for
+   * the token being bought, plus a little for fees. Only the shortfall moves,
+   * rounded up to the stroop so the account is never left a fraction short.
+   * Does nothing when the spending account already has enough, or when the
+   * smart wallet cannot cover the gap — the checks below then explain why.
+   */
+  async function topUpSpendingFromSmartWallet(amount: number, signerSecret: string) {
+    const walletAddr = await getWalletAddress().catch(() => null);
+    if (!walletAddr?.startsWith('C')) return;
+
+    const opensTrustline = tokenOut.code.toUpperCase() !== 'XLM' && balanceOf(tokenOut.code) === null;
+    const needed = amount + (opensTrustline ? 0.5 : 0) + 0.05;
+    const before = await getFeePayerXlm();
+    const shortfall = needed - before.spendable;
+    if (shortfall <= 0) return;
+
+    const inContract = await fetchContractAssetBalance(walletAddr);
+    if (inContract < shortfall) return;
+
+    // `__check_auth` cannot run against an undeployed contract; deploy first.
+    if (!(await isWalletDeployed(walletAddr))) {
+      await wallet.deploy(signerSecret);
+    }
+
+    const move = (Math.ceil(shortfall * 1e7) / 1e7).toFixed(7);
+    setStep('signing');
+    await sendAssetFromContract(walletAddr, Keypair.fromSecret(signerSecret).publicKey(), move);
+    setStep('submitting');
+
+    // The transfer is confirmed on Soroban, but Horizon — which the checks
+    // below read — can lag a few seconds behind. Wait for it rather than
+    // failing the swap on a balance that has already arrived.
+    for (let i = 0; i < 10; i++) {
+      if ((await getFeePayerXlm()).spendable >= needed) break;
+      await new Promise((r) => setTimeout(r, 1500));
+    }
+    const moved = await getFeePayerXlm();
+    setFeePayerXlm(moved);
+    setContractXlm(Math.max(0, inContract - Number(move)));
+  }
+
   // ── Execution — unchanged engine ───────────────────────────────────────────
   async function handleExecute() {
     setExecError(null);
@@ -189,6 +254,14 @@ export default function SwapScreen() {
       // Passkey ceremony done — everything past here is network work, so stop
       // showing "Waiting for passkey…".
       setStep('submitting');
+
+      // Swaps run from the spending account. When paying in XLM and that
+      // account is short, move the difference from the smart wallet first,
+      // using the same passkey-authorised contract transfer as a send. This is
+      // what lets a wallet whose XLM mostly sits in the contract swap at all.
+      if (tokenIn.code.toUpperCase() === 'XLM') {
+        await topUpSpendingFromSmartWallet(parsed, signerSecret);
+      }
 
       // Testnet → classic DEX path payment (adds the destination trustline
       // when missing). Mainnet → Soroswap.
@@ -340,7 +413,13 @@ export default function SwapScreen() {
   // trustline and data entry locks a further 0.5, and the recovery breadcrumbs
   // alone are three entries.
   const isXlmIn = tokenIn.code.toUpperCase() === 'XLM';
-  const payableIn = isXlmIn ? (feePayerXlm?.spendable ?? null) : balanceOf(tokenIn.code);
+  // Paying in XLM can draw on the smart wallet too: anything the spending
+  // account is short of is moved across before the swap runs.
+  const payableIn = isXlmIn
+    ? feePayerXlm
+      ? feePayerXlm.spendable + (contractXlm ?? 0)
+      : null
+    : balanceOf(tokenIn.code);
   // Measured against the fee payer's OWN balance. Comparing it to the wallet
   // total — which sums the smart wallet as well — reported more locked than the
   // account even holds.
