@@ -137,8 +137,13 @@ funded by the award.
 
 - [ ] **Next community APK** must include: `2370245` send balance per source, `6a4ba72`
       PIN-only lockout + balance error, `bafda2b` swap from smart wallet, `4937b83` all-asset
-      balance card, plus `autoIncrement` for the versionCode so testers can install over the
-      previous build.
+      balance card, `df0dea3` spending from an undeployed smart wallet, `e203ae3` payout
+      provider not named, `4e07eac` Earn per-asset deposits + mainnet pool, `76fdd79`
+      background payment notifications, and the send-screen spending balance. `autoIncrement`
+      (remote versionCode) is now set on the community profile. Tester checks: Earn deposit of
+      USDC held in the smart wallet, withdraw all, a payment notification with the app closed.
+- [ ] **Instant notifications** need server push (Expo push token + a sender watching mainnet);
+      the background check is up to ~15 min and some Android battery managers skip it.
 - [ ] **Vercel:** set `NEXT_PUBLIC_NETWORK=mainnet` for Production only (keep `testnet` for
       Preview/Development), after `7566bdd` is the live deploy; redeploy without build cache.
 - [ ] **Browser-test deploy-later on mainnet:** create with no XLM → dashboard; lock/unlock →
