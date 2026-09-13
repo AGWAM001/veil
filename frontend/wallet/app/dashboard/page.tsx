@@ -19,11 +19,12 @@ import { useInactivityLock } from '@/hooks/useInactivityLock'
 import { ensureFeePayer, isFeePayerPrfDowngrade, getFeePayerDiagnostics } from '@/lib/feePayer'
 import { fetchPrices } from '@/lib/fetchPrice'
 import { change24h, historyKey, isComparableTotal, readHistory, recordSnapshot, writeHistory } from '@/lib/balanceHistory'
-import { buildFriendbotUrl, getNativeAssetContractId, getNetwork, getNetworkName } from '@/lib/network'
+import { buildFriendbotUrl, getNativeAssetContractId, getNetwork, getNetworkName, walletConfig } from '@/lib/network'
 import { isMultisigAvailable } from '@/lib/multisigConfig'
 import { sweepContractBalance } from '@/lib/sweepContractBalance'
 import { derToRawSignature, hexToUint8Array } from '@veil/utils'
-import type { WebAuthnSignature } from '@veil/sdk'
+import { useInvisibleWallet, type WebAuthnSignature } from '@veil/sdk'
+import { ensureWalletDeployed } from '@/lib/walletDeployment'
 import { getDueSchedules, updateSchedule, advanceNextRun, type PaymentSchedule } from '@/lib/schedules'
 import { VeilMark } from '@/components/ui/VeilMark'
 import { Amount, Label, Row, TokenIcon } from '@/components/ui/primitives'
@@ -112,6 +113,7 @@ function DashboardPageContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
   useInactivityLock()
+  const wallet = useInvisibleWallet(walletConfig)
 
   const [walletAddress, setWalletAddress] = useState<string | null>(null)
   const [assets, setAssets]               = useState<WalletAsset[]>(() => cachedAssets ?? [])
@@ -612,6 +614,11 @@ function DashboardPageContent() {
           signature:      rawSig,
         }
       }
+
+      // Moving the contract's own balance is a call `__check_auth` answers, so
+      // the contract must exist. Wallets are deployed on first use; funds can
+      // sit at an undeployed address, and this is exactly that first use.
+      await ensureWalletDeployed(wallet.deploy, walletAddress)
 
       await sweepContractBalance(
         walletAddress!,

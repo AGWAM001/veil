@@ -110,19 +110,29 @@ export default function LockPage() {
       }
 
       // Step 2 — Biometric confirmed; verify wallet exists on-chain and restore session.
-      let result = await wallet.login()
+      const result = await wallet.login()
+      let sessionAddress = result?.walletAddress ?? null
 
-      // No address stored for this network. The wallet address is a pure
-      // function of the factory, the network and the passkey's public key, so
-      // derive it and let login verify it on-chain rather than giving up.
-      if (!result?.walletAddress) {
+      // login() only succeeds for a wallet already on chain. Wallets are now
+      // created off-chain and deployed on first use, so "not deployed yet" is
+      // a normal state, not a missing wallet. The address is a pure function of
+      // the factory, the network and the passkey's public key, and the
+      // assertion above already proved this person holds that passkey — so the
+      // derived address is theirs whether or not the contract exists yet.
+      if (!sessionAddress) {
         const derived = deriveAddressForActiveNetwork(
           walletLocal.getItem('invisible_wallet_public_key'),
         )
-        if (derived) result = await wallet.login({ walletAddress: derived })
+        if (derived) {
+          const onChain = await wallet.login({ walletAddress: derived })
+          sessionAddress = onChain?.walletAddress ?? derived
+          walletLocal.setItem('invisible_wallet_address', sessionAddress)
+        } else {
+          sessionAddress = walletLocal.getItem('invisible_wallet_address')
+        }
       }
 
-      if (!result?.walletAddress) {
+      if (!sessionAddress) {
         // The passkey is real; this network just has no wallet for it yet.
         // Sending them to create one reuses the passkey — the create flow skips
         // registration when one is stored — instead of registering a second.
@@ -136,12 +146,12 @@ export default function LockPage() {
       }
 
       const existing = walletSession.getItem('invisible_wallet_address')
-      if (existing && existing !== result.walletAddress) {
+      if (existing && existing !== sessionAddress) {
         sessionStorage.clear()
         setError('Account mismatch detected. Please register again.')
         return
       }
-      walletSession.setItem('invisible_wallet_address', result.walletAddress)
+      walletSession.setItem('invisible_wallet_address', sessionAddress)
 
       // Re-establish the fee-payer for this session. PRF wallets re-derive the
       // seed from the assertion above (no extra prompt) and keep it in
