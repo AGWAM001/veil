@@ -16,8 +16,6 @@
  * JS runtime just to run it, before any screen mounts.
  */
 
-import * as BackgroundTask from 'expo-background-task';
-import * as TaskManager from 'expo-task-manager';
 import { AppState, Platform } from 'react-native';
 
 import { movementKey } from './activityFeed';
@@ -31,6 +29,29 @@ export const ACTIVITY_TASK = 'veil-activity-check';
 
 /** Minutes. Android will not run a periodic worker more often than this. */
 const INTERVAL_MINUTES = 15;
+
+type BackgroundTaskModule = typeof import('expo-background-task');
+type TaskManagerModule = typeof import('expo-task-manager');
+
+/**
+ * Loaded defensively. Both are native modules, and importing one into a binary
+ * built without it throws at import time — from index.js, that is a crash on
+ * launch for anyone still on an older dev client. Without them the app notifies
+ * only while open, as before.
+ */
+function loadNativeModules(): { BackgroundTask: BackgroundTaskModule; TaskManager: TaskManagerModule } | null {
+  if (Platform.OS === 'web') return null;
+  try {
+    return {
+      BackgroundTask: require('expo-background-task') as BackgroundTaskModule,
+      TaskManager: require('expo-task-manager') as TaskManagerModule,
+    };
+  } catch {
+    return null;
+  }
+}
+
+const native = loadNativeModules();
 
 /**
  * One background pass. Returns how many notifications it posted.
@@ -79,7 +100,8 @@ export async function checkForNewActivity(): Promise<number> {
   return posted;
 }
 
-if (Platform.OS !== 'web') {
+if (native) {
+  const { BackgroundTask, TaskManager } = native;
   try {
     TaskManager.defineTask(ACTIVITY_TASK, async () => {
       try {
@@ -97,14 +119,13 @@ if (Platform.OS !== 'web') {
 
 /** Ask the OS to run the check periodically. Safe to call on every launch. */
 export async function registerActivityCheck(): Promise<void> {
-  if (Platform.OS === 'web') return;
+  if (!native) return;
+  const { BackgroundTask } = native;
   try {
     const status = await BackgroundTask.getStatusAsync();
     if (status !== BackgroundTask.BackgroundTaskStatus.Available) return;
     await BackgroundTask.registerTaskAsync(ACTIVITY_TASK, { minimumInterval: INTERVAL_MINUTES });
   } catch (err) {
-    // A build without the native module (Expo Go, an old dev client) keeps
-    // working; it just notifies only while open, as before.
     console.warn('[activity] background check not registered:', err instanceof Error ? err.message : err);
   }
 }
