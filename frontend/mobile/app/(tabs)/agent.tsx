@@ -767,7 +767,12 @@ const createStyles = (colors: ThemeColors) =>
       borderTopWidth: 1,
       borderTopColor: colors.border,
       paddingTop: 10,
-      paddingBottom: 8,
+      // The tab bar floats over the bottom of every tab (VeilTabBar is
+      // absolutely positioned), and its raised centre button stands higher
+      // still. With 8 here the input sat underneath it and could not be typed
+      // into. Scrolling tabs clear it with bottom padding on their content;
+      // this composer is pinned, so it has to clear it itself.
+      paddingBottom: 100,
       gap: 10,
     },
     chips: {
