@@ -1,7 +1,7 @@
 {
   "cli": {
     "version": ">= 12.0.0",
-    "appVersionSource": "local"
+    "appVersionSource": "remote"
   },
   "build": {
     "development": {
@@ -48,6 +48,7 @@
     "community": {
       "extends": "preview",
       "distribution": "internal",
+      "autoIncrement": true,
       "android": {
         "buildType": "apk"
       },
@@ -55,7 +56,8 @@
         "APP_ENV": "production",
         "EXPO_PUBLIC_NETWORK": "mainnet",
         "EXPO_PUBLIC_MAINNET_RPC_URL": "https://app.useveilapp.xyz/api/rpc/mainnet",
-        "EXPO_PUBLIC_WRAITH_URL": "https://wraith-0jo1.onrender.com"
+        "EXPO_PUBLIC_WRAITH_URL": "https://wraith-0jo1.onrender.com",
+        "EXPO_PUBLIC_BLEND_POOL_IDS_MAINNET": "CAJJZSGMMM3PD7N33TAPHGBUGTB43OC73HVIK2L2G6BNGGGYOSSYBXBD"
       },
       "environment": "production"
     }
