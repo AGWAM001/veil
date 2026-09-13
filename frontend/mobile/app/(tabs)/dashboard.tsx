@@ -24,6 +24,7 @@ import { loadHorizonActivity } from '../../lib/horizonActivity';
 import { usePolling } from '../../hooks/usePolling';
 import { fetchDashboardData } from '../../lib/activity';
 import { fetchPrice, usdValue } from '../../lib/fetchPrice';
+import { loadHoldings } from '../../lib/holdings';
 import { getNetwork } from '../../lib/network';
 import { ensureBreadcrumbs } from '../../lib/walletBreadcrumbs';
 import { ensureCorrectWalletAddress } from '../../lib/walletRepair';
@@ -41,10 +42,18 @@ const WRAITH_URL =
 // screen), so the card paints instantly instead of flashing a loading state.
 // Scoped to the wallet ADDRESS: after a reset/new wallet the old figures must
 // never paint under the new address.
-const lastKnown: { address: string | null; balance: string; price: number | null } = {
+const lastKnown: {
+  address: string | null;
+  balance: string;
+  price: number | null;
+  totalUsd: number | null;
+  breakdown: string | null;
+} = {
   address: null,
   balance: '—',
   price: null,
+  totalUsd: null,
+  breakdown: null,
 };
 
 /**
@@ -61,6 +70,10 @@ export default function DashboardTab() {
   const [walletAddress, setWalletAddress] = useState<string | null>(null);
   const [balance, setBalance] = useState<string>(() => lastKnown.balance);
   const [price, setPrice] = useState<number | null>(() => lastKnown.price);
+  // The whole wallet in fiat, across every asset and both accounts. The card
+  // used to show XLM only, so a wallet holding mostly USDC looked nearly empty.
+  const [totalUsd, setTotalUsd] = useState<number | null>(() => lastKnown.totalUsd);
+  const [breakdown, setBreakdown] = useState<string | null>(() => lastKnown.breakdown);
   const [refreshing, setRefreshing] = useState(false);
   // Whether the Horizon activity load has finished once. On testnet the Wraith
   // feed is deliberately skipped, so `loading` below reports false immediately
@@ -110,6 +123,27 @@ export default function DashboardTab() {
         setBalanceError(true);
       }
       try {
+        // Total across every holding. Shown only when every non-zero holding
+        // has a price: a sum that silently leaves an asset out would understate
+        // the wallet while presenting itself as the total, which is worse than
+        // falling back to the XLM figure the card already knows how to show.
+        const holdings = (await loadHoldings(addr)).filter((h) => Number(h.balance) > 0);
+        const allPriced = holdings.length > 0 && holdings.every((h) => h.usd !== null);
+        const total = allPriced ? holdings.reduce((sum, h) => sum + (h.usd as number), 0) : null;
+        const line = holdings
+          .slice()
+          .sort((a, b) => (b.usd ?? 0) - (a.usd ?? 0))
+          .slice(0, 3)
+          .map((h) => `${Number(h.balance).toLocaleString('en-US', { maximumFractionDigits: 2 })} ${h.code}`)
+          .join(' · ');
+        lastKnown.totalUsd = total;
+        lastKnown.breakdown = line || null;
+        setTotalUsd(total);
+        setBreakdown(line || null);
+      } catch {
+        // Keep the last known total; the XLM figure still renders meanwhile.
+      }
+      try {
         // Merge, don't replace: this runs every 15s, and any single source
         // blinking (rate-limited RPC, slow Horizon page) would otherwise blank
         // the feed until the next poll refilled it.
@@ -157,8 +191,12 @@ export default function DashboardTab() {
             lastKnown.address = addr;
             lastKnown.balance = '—';
             lastKnown.price = null;
+            lastKnown.totalUsd = null;
+            lastKnown.breakdown = null;
             setBalance('—');
             setPrice(null);
+            setTotalUsd(null);
+            setBreakdown(null);
             hydrateActivityFeed([]);
             setActivitySettled(false);
           }
@@ -248,6 +286,8 @@ export default function DashboardTab() {
         usd={usd}
         loading={balance === '—' && !balanceError}
         error={balance === '—' && balanceError}
+        totalUsd={totalUsd}
+        breakdown={breakdown}
       />
 
       {/* Cash out is hidden unless the backend answers AND we are on mainnet.
