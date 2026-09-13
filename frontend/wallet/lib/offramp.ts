@@ -74,6 +74,16 @@ function store(): Storage | null {
   }
 }
 
+/**
+ * The payout provider is not named to users. The backend already strips it;
+ * this covers an older backend deploy, since an installed APK outlives it.
+ */
+export function withoutProviderName(message: string): string {
+  if (/LINQ_API_KEY/i.test(message)) return 'Cash-out is not available right now'
+  const replaced = message.replace(/linq(?:'s)?/gi, 'the payout service')
+  return replaced.charAt(0).toUpperCase() + replaced.slice(1)
+}
+
 async function call<T>(path: string, init: { method?: string; body?: unknown } = {}): Promise<T> {
   if (!BASE_URL) throw new OfframpUnavailable('No backend configured for offramp.')
   const controller = new AbortController()
@@ -87,8 +97,8 @@ async function call<T>(path: string, init: { method?: string; body?: unknown } =
     })
     const text = await res.text()
     const data = text ? JSON.parse(text) : {}
-    if (res.status === 503) throw new OfframpUnavailable(data?.error ?? 'Offramp unavailable')
-    if (!res.ok) throw new Error(data?.error ?? `Request failed (${res.status})`)
+    if (res.status === 503) throw new OfframpUnavailable(withoutProviderName(data?.error ?? 'Offramp unavailable'))
+    if (!res.ok) throw new Error(withoutProviderName(data?.error ?? `Request failed (${res.status})`))
     return data as T
   } catch (err) {
     if (err instanceof OfframpUnavailable) throw err

@@ -726,7 +726,7 @@ export default function CashOutScreen() {
               ) : (
                 <Text style={styles.primaryText}>
                   {payHash
-                    ? 'Sent — waiting for Linq'
+                    ? 'Sent — processing your payout'
                     : `Pay ${order.amountStableCoin} USDC from this wallet`}
                 </Text>
               )}
