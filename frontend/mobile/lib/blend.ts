@@ -35,27 +35,44 @@ function blendNet(): Network {
 }
 
 /**
+ * Blend's public Fixed pool on mainnet (XLM, USDC, EURC). A pool id is public
+ * and permanent, so shipping it as the default means Earn works in any build
+ * rather than only in one whose environment was set up right.
+ */
+const DEFAULT_POOL_IDS: Record<'mainnet' | 'testnet', string> = {
+  mainnet: 'CAJJZSGMMM3PD7N33TAPHGBUGTB43OC73HVIK2L2G6BNGGGYOSSYBXBD',
+  testnet: '',
+};
+
+/**
  * Pool ids are per network. A Blend pool is a contract, and a contract id on
  * testnet addresses nothing on mainnet — so one shared list cannot serve both.
- * The per-network variable wins; the unsuffixed one stays as a fallback for
- * existing single-network setups.
+ * The per-network variable wins, then the unsuffixed one, then the default.
+ *
+ * Every variable is read by its full literal name. Expo inlines a public env
+ * var into the bundle only when the name is written out; this used to build it
+ * as `EXPO_PUBLIC_BLEND_POOL_IDS_${suffix}`, which the bundler cannot see, so
+ * the release APK shipped with no pools and Earn said it was unavailable on
+ * mainnet while the pool was live. Tests and the dev server resolve env at
+ * runtime, which is why nothing caught it before a real build.
  */
 function configuredPoolIds(): string[] {
-  const suffix = getNetwork().name.toUpperCase();
+  const name = getNetwork().name;
+  const perNetwork =
+    name === 'mainnet'
+      ? process.env.EXPO_PUBLIC_BLEND_POOL_IDS_MAINNET
+      : process.env.EXPO_PUBLIC_BLEND_POOL_IDS_TESTNET;
   const configured: string =
-    process.env[`EXPO_PUBLIC_BLEND_POOL_IDS_${suffix}`] ??
-    process.env['EXPO_PUBLIC_BLEND_POOL_IDS'] ??
-    '';
+    perNetwork?.trim() ||
+    process.env.EXPO_PUBLIC_BLEND_POOL_IDS?.trim() ||
+    DEFAULT_POOL_IDS[name === 'mainnet' ? 'mainnet' : 'testnet'];
   const ids = configured
     .split(',')
     .map((value) => value.trim())
     .filter(Boolean);
 
   if (ids.length === 0) {
-    console.warn(
-      `[blend] no pools configured for ${getNetwork().name} — ` +
-        `set EXPO_PUBLIC_BLEND_POOL_IDS_${getNetwork().name.toUpperCase()}`,
-    );
+    console.warn(`[blend] no pools configured for ${name}`);
   }
 
   return ids;
