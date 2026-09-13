@@ -75,9 +75,34 @@ documents (file and name). Reviewers check the citation exists before merging.
   application, with v2 in the milestones.
 - **It is squarely what the Integration Track ask is for:** mainnet hardening.
 
-## 5. Contracts v2 — scope
+## 5. What a redeploy costs, and how to avoid paying for it now
 
-One contract release, one mainnet factory redeploy.
+Measured from the original mainnet deployment (deployer
+`GDWBFMW565JIDKUQZMGPS6SHRLM7ZIFVVRKBPBJZPJG6EOJQ7LDK3YVX`, 2026-08-21), fees charged on chain:
+
+| Transaction | Fee |
+|---|---|
+| Upload wallet contract Wasm | 33.3089239 XLM |
+| Upload factory Wasm | 5.9505297 XLM |
+| Create factory contract | 0.0309962 XLM |
+| `init` | 0.0119811 XLM |
+| **Total** | **≈ 39.30 XLM (≈ $7 at 1 XLM = 0.178 USDC, 2026-09-13)** |
+
+The Wasm uploads are almost all of it. v2 changes both contracts, so expect about the same
+again. It is small, but it is not zero, and there is no reason to spend it before the award:
+
+1. **Build and prove v2 on testnet — free.** Friendbot pays; testnet fees cost nothing real.
+   SCF #46 makes tranche 2 a testnet deliverable, so a tested v2 on testnet is exactly what
+   that tranche asks for.
+2. **Make the mainnet redeploy a funded milestone** in the application, with the ~40 XLM
+   deploy and the tester migration costed in, instead of paying it out of pocket first.
+3. **Do the free items now:** correct the public docs page, and disclose the gap and the plan
+   in the application.
+
+## 6. Contracts v2 — scope
+
+One contract release: tested on testnet first (free), then one mainnet factory redeploy,
+funded by the award.
 
 - [ ] **Wallet `upgrade(new_wasm_hash)`, authorised only by that wallet's own signers**
       (`require_auth` on the wallet address, answered by `__check_auth`). **Never an operator
@@ -102,13 +127,13 @@ One contract release, one mainnet factory redeploy.
 - [ ] Re-run the mainnet receipts (passkey spend, Soroswap swap) against the new factory and
       update `README.md` / `docs/SCF_STRATEGY.md`.
 
-## 6. Do now — no contract work needed
+## 7. Do now — no contract work needed
 
 - [ ] **Correct `frontend/docs/pages/contract-upgrades.mdx`.** Mark both functions as *not
       implemented, planned for contracts v2*. It is public and describes guarantees we do not have.
 - [ ] **SCF application:** state the gap and put contracts v2 in the milestones.
 
-## 7. Other open items from mainnet testing (September 2026)
+## 8. Other open items from mainnet testing (September 2026)
 
 - [ ] **Next community APK** must include: `2370245` send balance per source, `6a4ba72`
       PIN-only lockout + balance error, `bafda2b` swap from smart wallet, `4937b83` all-asset
