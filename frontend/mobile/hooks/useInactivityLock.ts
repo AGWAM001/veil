@@ -3,6 +3,7 @@ import { AppState } from 'react-native';
 import { usePathname, useRouter, useSegments } from 'expo-router';
 
 import Constants, { ExecutionEnvironment } from 'expo-constants';
+import * as LocalAuthentication from 'expo-local-authentication';
 
 import { createIdleWatcher } from '../lib/appLock';
 import { rememberLockReturn } from '../lib/lockReturn';
@@ -61,6 +62,15 @@ export function useInactivityLock(): void {
       // would itself log a native-module error just by being required.) A dev
       // build / standalone locks normally.
       if (IN_EXPO_GO) return;
+
+      // Same reasoning for a device with no screen lock at all: `/lock` can
+      // only be dismissed by a system prompt, and with nothing enrolled there
+      // is no prompt to answer. Arming it would lock the user out of their own
+      // wallet rather than lock anyone else out of it.
+      const level = await LocalAuthentication.getEnrolledLevelAsync().catch(
+        () => LocalAuthentication.SecurityLevel.NONE,
+      );
+      if (cancelled || level === LocalAuthentication.SecurityLevel.NONE) return;
 
       // Note where we are before the replace throws it away, so unlocking can
       // come back to it instead of dumping the user on the dashboard.

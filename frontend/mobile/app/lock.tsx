@@ -30,10 +30,17 @@ export default function LockScreen() {
     setError(null);
     setIsUnlocking(true);
     try {
-      const hasHardware = await LocalAuthentication.hasHardwareAsync();
-      const isEnrolled = await LocalAuthentication.isEnrolledAsync();
-      if (!hasHardware || !isEnrolled) {
-        setError('No biometric or device passcode is set up. Add one in system settings.');
+      // `isEnrolledAsync` only reports a saved fingerprint or face — Expo's own
+      // docs say so. It is false on a phone secured by a PIN or pattern alone,
+      // so this screen told those users no passcode was set up and then
+      // refused them indefinitely: a lock with no key, over their own money.
+      // The enrolled LEVEL counts a PIN as the security it is.
+      const level = await LocalAuthentication.getEnrolledLevelAsync();
+      if (level === LocalAuthentication.SecurityLevel.NONE) {
+        // Nothing on this device can answer a prompt. The app lock cannot add
+        // protection a phone with no screen lock does not have, and keeping
+        // this screen up would only strand the user. Let them through.
+        router.replace((takeLockReturn() ?? '/dashboard') as never);
         return;
       }
 

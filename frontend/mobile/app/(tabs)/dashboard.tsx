@@ -68,6 +68,12 @@ export default function DashboardTab() {
   // actually fills it there — was still in flight. Tracked separately so the
   // skeleton covers the real wait rather than only the Wraith one.
   const [activitySettled, setActivitySettled] = useState(false);
+  // Each source reports its own failure. The balance card used to show the
+  // INDEXER's error, so a Wraith call that failed in transport told the user
+  // their balance could not be loaded — while the balance, which comes from
+  // Horizon, was fine. Supplementary sources must never speak for primary ones.
+  const [balanceError, setBalanceError] = useState(false);
+  const [activityError, setActivityError] = useState<string | null>(null);
   const [selectedTx, setSelectedTx] = useState<TxRecord | null>(null);
   // Probed once per mount rather than per render: a 503 here means "no offramp
   // on this deployment", which is also what a sleeping backend looks like.
@@ -97,16 +103,20 @@ export default function DashboardTab() {
         lastKnown.price = p;
         setBalance(data.xlmBalance);
         setPrice(p);
+        setBalanceError(false);
       } catch {
-        // keep the last-known values
+        // Keep the last-known values. Only flag an error the card will show —
+        // it renders one only while there is no figure at all to fall back on.
+        setBalanceError(true);
       }
       try {
         // Merge, don't replace: this runs every 15s, and any single source
         // blinking (rate-limited RPC, slow Horizon page) would otherwise blank
         // the feed until the next poll refilled it.
         hydrateActivityFeed(await loadHorizonActivity(addr), { merge: true });
-      } catch {
-        // activity stays as-is
+        setActivityError(null);
+      } catch (err) {
+        setActivityError(err instanceof Error ? err.message : 'Could not load activity.');
       } finally {
         // Settled, not "succeeded": a failed load must still stop the skeleton,
         // otherwise it spins forever with no way to say what went wrong.
@@ -165,7 +175,9 @@ export default function DashboardTab() {
   }, [refreshAll, networkName]);
 
   // Wraith feed init — skipped on testnet (Horizon covers it in refreshAll).
-  const { loading, error, refresh: refreshFeed } = useInitActivityFeed(
+  // Wraith supplements Horizon here; its own failures are logged by the feed
+  // module and deliberately not surfaced as a screen-level error.
+  const { loading, refresh: refreshFeed } = useInitActivityFeed(
     walletAddress,
     onTestnet ? null : WRAITH_URL,
   );
@@ -234,8 +246,8 @@ export default function DashboardTab() {
       <SilverBalanceCard
         balance={balance === '—' ? undefined : balance}
         usd={usd}
-        loading={balance === '—' && loading}
-        error={!!error}
+        loading={balance === '—' && !balanceError}
+        error={balance === '—' && balanceError}
       />
 
       {/* Cash out is hidden unless the backend answers AND we are on mainnet.
@@ -274,14 +286,14 @@ export default function DashboardTab() {
       <ActivityFeed
         filter="all"
         loading={loading || !activitySettled}
-        error={error}
+        error={activityError}
         onSelectTx={handleSelectTx}
         limit={3}
       />
 
-      {error ? (
+      {activityError ? (
         <View style={styles.errorBanner}>
-          <Text style={styles.errorText}>{error}</Text>
+          <Text style={styles.errorText}>{activityError}</Text>
         </View>
       ) : null}
 
