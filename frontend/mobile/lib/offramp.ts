@@ -65,6 +65,9 @@ export interface OfframpStatus {
  * this covers an older backend deploy, since an installed APK outlives it.
  */
 export function withoutProviderName(message: string): string {
+  if (/wallet generation failed/i.test(message)) {
+    return "The payout service couldn't set up this order. Try again in a minute.";
+  }
   if (/LINQ_API_KEY/i.test(message)) return 'Cash-out is not available right now';
   const replaced = message.replace(/linq(?:'s)?/gi, 'the payout service');
   return replaced.charAt(0).toUpperCase() + replaced.slice(1);

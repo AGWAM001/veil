@@ -640,7 +640,7 @@ export default function CashOutScreen() {
               <Row label="Rate" value={`₦${order?.rate?.toLocaleString('en-US') ?? rate?.toLocaleString('en-US')} / USDC`} />
               {/* True, and worth saying: the fee payer covers it, so the amount
                   the user sends is the amount that counts. */}
-              <Row label="Network fee" value="Sponsored" accent />
+              <Row label="Network fee" value="Under 0.01 XLM" />
             </View>
 
             <Text style={styles.hint}>
@@ -766,7 +766,7 @@ export default function CashOutScreen() {
                   <Row label="Rate" value={`₦${order.rate.toLocaleString('en-US')} / USDC`} />
                 </>
               ) : null}
-              <Row label="Network fee" value="Sponsored" accent />
+              <Row label="Network fee" value="Under 0.01 XLM" />
             </View>
 
             {isFailure(status) ? (

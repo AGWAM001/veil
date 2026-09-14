@@ -30,6 +30,7 @@ import {
 
 import { getNetwork } from './network';
 import { inclusionFee } from './fees';
+import { horizonErrorMessage } from './horizonError';
 
 // All endpoints follow the ACTIVE network — module-level env consts froze
 // these to testnet and sent mainnet payments at testnet Horizon.
@@ -198,10 +199,12 @@ export async function sendPayment(
       return { hash: res.hash };
     } catch (err) {
       // Surface Horizon's real result codes instead of a bare axios "400".
-      const extras = (err as { response?: { data?: { extras?: { result_codes?: unknown } } } })?.response?.data?.extras;
-      if (extras?.result_codes) {
-        throw new Error(`Payment rejected: ${JSON.stringify(extras.result_codes)}`);
-      }
+      // In words, not JSON. This used to throw `Payment rejected:
+      // {"transaction":"tx_insufficient_balance"}`, which also hid the codes from
+      // the translator errorMessage runs, so the screen showed the raw object.
+      const data = (err as { response?: { data?: unknown } })?.response?.data;
+      const readable = horizonErrorMessage(data);
+      if (readable) throw new Error(readable);
       throw err;
     }
   }
