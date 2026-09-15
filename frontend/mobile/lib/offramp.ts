@@ -65,6 +65,9 @@ export interface OfframpStatus {
  * this covers an older backend deploy, since an installed APK outlives it.
  */
 export function withoutProviderName(message: string): string {
+  if (/rate.?limit|too many requests/i.test(message)) {
+    return "The payout service is busy right now. Try again in a few seconds.";
+  }
   if (/wallet generation failed/i.test(message)) {
     return "The payout service couldn't set up this order. Try again in a minute.";
   }
