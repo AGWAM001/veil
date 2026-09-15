@@ -245,18 +245,21 @@ export async function knownDepositAddresses(): Promise<string[]> {
   }
 }
 
+/**
+ * Endings that did not pay out. "refunded" was missing, so a refunded order was
+ * restored as still awaiting payment — Pay button and all, against a deposit
+ * address the provider had already closed. The backend now also rewords these
+ * for older builds (wraith statusForClients); this is the proper fix.
+ */
+const FAILED_ENDINGS = ['failed', 'timeout', 'expire', 'refund', 'cancel', 'revers'];
+
 /** Terminal states, from Linq's own vocabulary. Anything else is still moving. */
 export function isTerminal(status: string): boolean {
   const s = status.toLowerCase();
-  return (
-    s.includes('settled') ||
-    s.includes('disbursed') ||
-    s.includes('failed') ||
-    s.includes('timeout')
-  );
+  return s.includes('settled') || s.includes('disbursed') || FAILED_ENDINGS.some((w) => s.includes(w));
 }
 
 export function isFailure(status: string): boolean {
   const s = status.toLowerCase();
-  return s.includes('failed') || s.includes('timeout');
+  return FAILED_ENDINGS.some((w) => s.includes(w));
 }

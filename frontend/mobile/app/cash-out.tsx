@@ -76,7 +76,11 @@ function describeStatus(status: string): string {
   if (s.includes('bank queue')) return 'Deposit received — sending to the bank';
   if (s.includes('disbursed')) return 'Naira sent to the bank account';
   if (s.includes('settled')) return 'Complete';
-  if (s.includes('timeout')) return 'Expired — no deposit arrived in time';
+  // Before `failed`: the backend sends a refund as "refunded (failed)" so older
+  // builds can finish the order, and a refund is not the same as a failed payout.
+  if (s.includes('refund')) return 'Refunded — the USDC was sent back to your spending account';
+  if (s.includes('timeout') || s.includes('expire')) return 'Expired — no deposit arrived in time';
+  if (s.includes('cancel') || s.includes('revers')) return 'Cancelled — any USDC that arrived is returned';
   if (s.includes('failed')) return 'The bank payout failed';
   return status;
 }
