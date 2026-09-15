@@ -198,10 +198,14 @@ function ConnectivityGate() {
       return;
     }
 
-    if (pushedRef.current) {
+    // Leave whenever the screen is showing, not only when this gate pushed it
+    // and there is somewhere to go back to. On a cold start while offline there
+    // is no history, so `back()` did nothing and the screen stayed up for good.
+    if (pushedRef.current || isOnOfflineRoute) {
       pushedRef.current = false;
-      if (isOnOfflineRoute && router.canGoBack()) {
-        router.back();
+      if (isOnOfflineRoute) {
+        if (router.canGoBack()) router.back();
+        else router.replace('/');
       }
     }
   }, [isOnOfflineRoute, isOnline, router]);

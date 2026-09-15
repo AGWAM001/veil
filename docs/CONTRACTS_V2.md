@@ -151,7 +151,7 @@ funded by the award.
 - [ ] **Confirm recovery breadcrumbs are written on mainnet** (two data entries on the
       fee-payer after the dashboard loads once).
 - [ ] **Funder account** for community drops: ~2.6 XLM per person (`scripts/fund-receivers.mjs`).
-- [ ] **No-PRF passkey providers** (e.g. Samsung Pass) create unrecoverable wallets: prompt at
+- [ ] **No-PRF passkey providers** (e.g. Samsung Pass, a vivo tester 2026-09-15) create unrecoverable wallets. **Partly done:** the create screen now says why (unsupported manager / closed prompt / error) and offers a retry that binds recovery while the spending account is still unfunded. Still open: prompt at
       creation, not just a warning afterwards.
 - [x] **QuickNode mainnet RPC is a trial** (cliff ~18 Sept 2026). Fixed in code: the proxy now fails over to free public RPCs (Lightsail, Gateway.fm, sorobanrpc.com, Ankr), all checked against the calls Veil makes. **Live only once this reaches `main` (Vercel production).** No APK rebuild needed; the app talks to the proxy.
 - [ ] `/offramp/orders` on Wraith is unauthenticated.

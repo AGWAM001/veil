@@ -62,6 +62,22 @@ function resolveIsOnline(state: Pick<NetInfoState, 'isConnected' | 'isInternetRe
   return true;
 }
 
+/**
+ * Reachability is checked against Horizon rather than left to the platform.
+ *
+ * NetInfo's default on Android is native reachability: the OS's own validation
+ * of the network, which pings Google. Some phones and networks never validate
+ * even while the internet works, so the app declared itself offline and parked
+ * a working wallet on the offline screen. What this app needs to reach is
+ * Stellar, so that is what "online" now means.
+ */
+NetInfo.configure({
+  useNativeReachability: false,
+  reachabilityUrl: 'https://horizon.stellar.org/',
+  reachabilityTest: async (response) => response.status === 200,
+  reachabilityRequestTimeout: 15_000,
+});
+
 export function ConnectivityProvider({ children }: { children: ReactNode }) {
   const [isConnected, setIsConnected] = useState<boolean | null>(null);
   const [isInternetReachable, setIsInternetReachable] = useState<boolean | null>(null);

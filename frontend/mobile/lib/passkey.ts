@@ -35,6 +35,7 @@ import {
   type WebAuthnSignature,
 } from './walletConnect';
 import { isUserRejection } from './walletConnectHelpers';
+import { prfFromAssertion, prfFromError, type PrfEvaluation } from './prfOutcome';
 import { getPasskeyId, getPasskeyPublicKey, getSignerSecret } from './walletStore';
 import { base64UrlToUint8Array, derToRawSignature, hexToUint8Array, uint8ArrayToBase64Url } from './webauthn';
 
@@ -200,22 +201,28 @@ function parsePrfOutput(assertion: unknown): Uint8Array | null {
   return null;
 }
 
+/**
+ * Evaluate PRF for `salt` on one credential, and say why when there is no
+ * output: an unsupported password manager, a closed prompt, or an error.
+ */
+export async function evaluatePrf(credentialId: string, salt: Uint8Array): Promise<PrfEvaluation> {
+  try {
+    const assertion = await passkeys().get({
+      challenge: uint8ArrayToBase64Url(Crypto.getRandomBytes(32)),
+      rpId: getRelyingPartyId(),
+      allowCredentials: [{ id: credentialId, type: 'public-key' }],
+      userVerification: 'required',
+      timeout: 60_000,
+      extensions: { prf: { eval: { first: uint8ArrayToBase64Url(salt) } } },
+    });
+    return prfFromAssertion(!!assertion, assertion ? parsePrfOutput(assertion) : null);
+  } catch (error: unknown) {
+    return prfFromError(error);
+  }
+}
+
 export function nativePrfEvaluator(credentialId: string): (salt: Uint8Array) => Promise<Uint8Array | null> {
-  return async (salt: Uint8Array) => {
-    try {
-      const assertion = await passkeys().get({
-        challenge: uint8ArrayToBase64Url(Crypto.getRandomBytes(32)),
-        rpId: getRelyingPartyId(),
-        allowCredentials: [{ id: credentialId, type: 'public-key' }],
-        userVerification: 'required',
-        timeout: 60_000,
-        extensions: { prf: { eval: { first: uint8ArrayToBase64Url(salt) } } },
-      });
-      return parsePrfOutput(assertion);
-    } catch {
-      return null;
-    }
-  };
+  return async (salt: Uint8Array) => (await evaluatePrf(credentialId, salt)).output;
 }
 
 /**
