@@ -222,9 +222,13 @@ export default function CashOutScreen() {
           coin: 'usdc',
           amountStableCoin: live.amountStableCoin,
           amountNGN: live.amountNGN,
-          rate: 0,
+          rate: live.rate ?? 0,
           status: live.status,
         });
+        // Both come from the backend now. Without them a resumed order showed
+        // "₦0 / USDC" and a countdown with no start — a dash where the minutes
+        // belong, which reads as an order that has expired when it has not.
+        if (live.createdAt) setCreatedAt(new Date(live.createdAt).getTime());
         setStep('deposit');
       } catch {
         // Unreachable backend: leave the fresh form rather than showing an
@@ -357,6 +361,14 @@ export default function CashOutScreen() {
         const s = await getOrderStatus(order.id);
         if (!alive) return;
         setStatus(s.status);
+        // The settled figures replace the quote as soon as the provider has
+        // them: a payout follows what arrived, at the rate when it settled, so
+        // the two differ by a few naira either way. The receipt has to be the
+        // payout — a store handed a receipt that disagrees with its own credit
+        // alert has every reason to doubt it.
+        setOrder((prev) =>
+          prev ? { ...prev, amountStableCoin: s.amountStableCoin, amountNGN: s.amountNGN } : prev,
+        );
         if (isTerminal(s.status)) {
           setStep('done');
           void forgetActiveOrder();
@@ -703,7 +715,7 @@ export default function CashOutScreen() {
             </View>
 
             <View style={styles.rows}>
-              <Row label="They receive" value={`₦${order.amountNGN.toLocaleString('en-US')}`} />
+              <Row label="They receive" value={`≈ ₦${order.amountNGN.toLocaleString('en-US')}`} />
               <Row label="Rate" value={`₦${order.rate.toLocaleString('en-US')} / USDC`} />
               <Row label="Status" value={describeStatus(status)} accent />
             </View>

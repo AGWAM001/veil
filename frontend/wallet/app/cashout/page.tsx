@@ -257,6 +257,12 @@ export default function CashOutPage() {
         const s = await getOrderStatus(order.id)
         if (cancelled) return
         setStatus(s.status)
+        // Settled figures replace the quote: the payout follows what arrived, at
+        // the rate when it settled, so a receipt showing the quote can disagree
+        // with the recipient's own credit alert by a few naira.
+        setOrder((prev) =>
+          prev ? { ...prev, amountStableCoin: s.amountStableCoin, amountNGN: s.amountNGN } : prev,
+        )
         if (isTerminal(s.status)) {
           forgetActiveOrder()
           if (!isFailure(s.status)) setStep('done')
@@ -565,7 +571,7 @@ export default function CashOutPage() {
                 {order.amountStableCoin} USDC
               </p>
               <p style={{ margin: '4px 0 0', fontSize: '0.875rem', color: 'rgba(246,247,248,0.55)' }}>
-                to receive ₦{order.amountNGN.toLocaleString('en-NG')}
+                to receive ≈ ₦{order.amountNGN.toLocaleString('en-NG')}
               </p>
             </div>
 

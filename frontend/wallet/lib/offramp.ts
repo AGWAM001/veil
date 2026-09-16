@@ -58,8 +58,18 @@ export interface OfframpOrder {
 export interface OfframpStatus {
   id: string
   status: string
+  /**
+   * Once an order settles these are what actually happened, which is not always
+   * what was quoted: the payout follows the deposit that arrived, at the rate at
+   * settlement. A receipt must show these, not the estimate.
+   */
   amountStableCoin: number
   amountNGN: number
+  /** From our own row: the rate locked at creation, and when that was. */
+  rate?: number
+  createdAt?: string
+  /** The provider's own status word, before it was reworded for older apps. */
+  providerStatus?: string
   depositAddress?: string
   /** 'cache' means the backend could not reach Linq and served its own row. */
   source?: 'linq' | 'cache'
