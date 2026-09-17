@@ -95,9 +95,10 @@ jobs:
       - name: Verify signing certificate matches assetlinks.json
         working-directory: .
         run: |
-          apksigner="$(ls -d "$ANDROID_HOME"/build-tools/*/ | sort -V | tail -1)apksigner"
-          actual=$("$apksigner" verify --print-certs "$APK_PATH" \
-            | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | head -1 | tr 'a-f' 'A-F')
+          # Read from the APK's v2/v3 signing block directly. The first version
+          # of this step parsed apksigner's output and read nothing, which failed
+          # a good build; this script was checked against build 3 first.
+          actual=$(python3 scripts/apk-cert-sha256.py "$APK_PATH")
           expected=$(jq -r '.[] | select(.target.namespace == "android_app" and .target.package_name == "xyz.veil.wallet") | .target.sha256_cert_fingerprints[0]' \
             frontend/wallet/public/.well-known/assetlinks.json | tr -d ':' | tr 'a-f' 'A-F')
           echo "APK certificate SHA-256:         $actual"
