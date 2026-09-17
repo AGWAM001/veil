@@ -68,6 +68,19 @@ jobs:
       - name: Install EAS CLI
         run: npm install --global eas-cli@latest
 
+      # Expo's generated android/gradle.properties caps the Gradle daemon at
+      # 2 GB, and packaging this APK (four ABIs, ~120 MB) ran out of heap after
+      # 23 minutes of compiling. The user-level file overrides the project one;
+      # the runner has 16 GB.
+      - name: Give Gradle enough memory
+        working-directory: .
+        run: |
+          dir="${GRADLE_USER_HOME:-$HOME/.gradle}"
+          mkdir -p "$dir"
+          echo "org.gradle.jvmargs=-Xmx6g -XX:MaxMetaspaceSize=1g -Dfile.encoding=UTF-8" >> "$dir/gradle.properties"
+          echo "kotlin.daemon.jvmargs=-Xmx2g" >> "$dir/gradle.properties"
+          cat "$dir/gradle.properties"
+
       - name: Build APK locally with EAS
         run: >-
           eas build
