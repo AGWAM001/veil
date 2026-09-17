@@ -37,7 +37,7 @@ import { getFeePayerAddress } from '../lib/activity';
 import { getWalletAddress } from '../lib/walletStore';
 import { loadHoldings, type Holding } from '../lib/holdings';
 import { errorMessage } from '../lib/errorMessage';
-import { spendAsset } from '../lib/spendAsset';
+import { NotEnoughToSend, spendAsset } from '../lib/spendAsset';
 import { useWallet } from '../components/WalletProvider';
 
 /** Circle's USDC on mainnet — the only asset Linq's Stellar leg credits. */
@@ -130,6 +130,13 @@ export default function CashOutScreen() {
   const [copied, setCopied] = useState(false);
   const [bankQuery, setBankQuery] = useState('');
   const [payHash, setPayHash] = useState<string | null>(null);
+  /**
+   * What the wallet can actually send when it holds slightly less than the
+   * order. The provider's rate rounds the order up (5.4 USDC against 5.3937967
+   * held), and the payout follows what arrives, so sending everything is a
+   * working order rather than a failure.
+   */
+  const [sendableInstead, setSendableInstead] = useState<number | null>(null);
   const { wallet } = useWallet();
 
   /**
@@ -141,23 +148,53 @@ export default function CashOutScreen() {
    * routing is shared with the send screen rather than copied, so both spend
    * from the same source for the same balance.
    */
-  const payFromWallet = async () => {
+  const payFromWallet = async (amountOverride?: number) => {
     if (!order) return;
     setError(null);
+    setSendableInstead(null);
     setBusy(true);
     try {
       const hash = await spendAsset({
         to: order.walletAddress,
-        amount: String(order.amountStableCoin),
+        amount: String(amountOverride ?? order.amountStableCoin),
         asset: { code: 'USDC', issuer: USDC_MAINNET_ISSUER },
         deploy: wallet.deploy,
       });
       setPayHash(hash);
     } catch (err) {
-      setError(errorMessage(err));
+      if (err instanceof NotEnoughToSend && err.available > 0 && err.available >= err.requested * 0.9) {
+        // Floor to the stroop, so the offer never exceeds what is there.
+        setSendableInstead(Math.floor(err.available * 1e7) / 1e7);
+        setError(
+          `Your wallet holds ${err.available.toLocaleString('en-US', { maximumFractionDigits: 7 })} USDC, a little less than this order. You can send all of it: the payout follows what arrives.`,
+        );
+      } else {
+        setError(errorMessage(err));
+      }
     } finally {
       setBusy(false);
     }
+  };
+
+  /**
+   * Walk away from an order that has not been paid.
+   *
+   * The provider has no cancel call, and does not need one: an order nobody
+   * pays expires on its own after 10 minutes, and no money has moved. What
+   * kept users stuck was the app remembering the order and reopening it. A new
+   * idempotency key is minted so the next order is a new one, not a replay.
+   */
+  const cancelOrder = () => {
+    void forgetActiveOrder();
+    setOrder(null);
+    setStatus('initiated');
+    setPayHash(null);
+    setSendableInstead(null);
+    setCreatedAt(null);
+    setSecondsLeft(null);
+    setError(null);
+    idempotencyKey.current = `veil_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+    setStep('amount');
   };
 
   // Typed through an in-brand keypad rather than the OS keyboard: this is the
@@ -728,7 +765,7 @@ export default function CashOutScreen() {
                 point of this app. Sending from elsewhere stays available, but
                 as the quiet alternative rather than the only option. */}
             <Pressable
-              onPress={payFromWallet}
+              onPress={() => payFromWallet()}
               disabled={busy || payHash !== null}
               accessibilityRole="button"
               style={({ pressed }) => [
@@ -748,9 +785,31 @@ export default function CashOutScreen() {
               )}
             </Pressable>
 
+            {sendableInstead !== null && payHash === null ? (
+              <Pressable
+                onPress={() => payFromWallet(sendableInstead)}
+                disabled={busy}
+                accessibilityRole="button"
+                style={({ pressed }) => [styles.primary, busy && styles.primaryDisabled, pressed && styles.pressed]}
+              >
+                <Text style={styles.primaryText}>Send all {sendableInstead} USDC instead</Text>
+              </Pressable>
+            ) : null}
+
             <Pressable onPress={copyDeposit} accessibilityRole="button" style={styles.secondary}>
               <Text style={styles.secondaryText}>I&apos;ll send it from elsewhere</Text>
             </Pressable>
+
+            {payHash === null ? (
+              <Pressable
+                onPress={cancelOrder}
+                disabled={busy}
+                accessibilityRole="button"
+                style={styles.secondary}
+              >
+                <Text style={styles.secondaryText}>Cancel order</Text>
+              </Pressable>
+            ) : null}
           </>
         )}
 

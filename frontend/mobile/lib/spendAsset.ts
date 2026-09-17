@@ -35,6 +35,21 @@ function feeHeadroomXlm(): number {
   return feeBidXlm() + 0.01;
 }
 
+/**
+ * The wallet as a whole holds less than the amount. Carries what it does hold,
+ * so a screen can offer to send that instead.
+ */
+export class NotEnoughToSend extends Error {
+  constructor(
+    readonly available: number,
+    readonly requested: number,
+    readonly code: string,
+  ) {
+    super(`Your wallet holds ${available.toLocaleString('en-US', { maximumFractionDigits: 7 })} ${code}, less than ${requested}.`);
+    this.name = 'NotEnoughToSend';
+  }
+}
+
 /** The spending account cannot pay the network fee, whatever it is sending. */
 export class NeedsXlmForFee extends Error {
   constructor(readonly spendingAddress: string) {
@@ -128,7 +143,7 @@ export async function spendAsset(params: {
   if (inSpending < amountNumber) {
     const plan = planDeposit({ amount: amountNumber, inSpending, inWallet });
     if (plan.kind === 'short') {
-      throw new Error(`Your wallet holds ${fmt(plan.available)} ${code}, less than ${amount}.`);
+      throw new NotEnoughToSend(plan.available, amountNumber, code);
     }
     if (plan.kind === 'move' && contract) {
       // Two transactions from the spending account now, so two fees.

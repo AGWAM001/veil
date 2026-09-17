@@ -14,6 +14,7 @@
  * one missing native piece lives behind {@link requireSigner} in `lib/signer.ts`.
  */
 
+import { rejectionFromResult } from './networkErrors';
 import {
   Asset,
   BASE_FEE,
@@ -244,7 +245,7 @@ export async function sendPayment(
 
   const sendResult = await server.sendTransaction(assembled);
   if (sendResult.status === 'ERROR') {
-    throw new Error(`Transaction rejected: ${sendResult.errorResult?.toXDR('base64') ?? 'unknown'}`);
+    throw new Error(rejectionFromResult(sendResult.errorResult));
   }
 
   return { hash: await pollForResult(server, sendResult.hash) };

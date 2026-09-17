@@ -1,3 +1,4 @@
+import { rejectionFromResult } from './networkErrors';
 import { Horizon, Transaction, TransactionBuilder, Keypair, rpc as SorobanRpc } from '@stellar/stellar-sdk';
 
 import './polyfills';
@@ -124,7 +125,7 @@ export async function signAndSubmitSorobanXdr(params: {
   const sendResult = await rpc.sendTransaction(assembled);
   if (sendResult.status === 'ERROR') {
     throw new Error(
-      `Transaction rejected: ${sendResult.errorResult?.toXDR('base64') ?? 'unknown'}`
+      rejectionFromResult(sendResult.errorResult)
     );
   }
 

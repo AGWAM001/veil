@@ -10,6 +10,7 @@
  * just builds the unsigned transfer and routes it through.
  */
 
+import { rejectionFromResult } from './networkErrors';
 import {
   Asset,
   BASE_FEE,
@@ -163,7 +164,7 @@ export async function sendAssetFromContract(
     const signedTx = TransactionBuilder.fromXDR(signedXdr, network.networkPassphrase);
     const sendResult = await server.sendTransaction(signedTx);
     if (sendResult.status === 'ERROR') {
-      throw new Error(`Transaction rejected: ${sendResult.errorResult?.toXDR('base64') ?? 'unknown'}`);
+      throw new Error(rejectionFromResult(sendResult.errorResult));
     }
     return await pollForResult(server, sendResult.hash);
   } finally {

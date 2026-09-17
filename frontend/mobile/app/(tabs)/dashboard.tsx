@@ -1,3 +1,4 @@
+import { errorMessage } from '../../lib/errorMessage';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -150,7 +151,7 @@ export default function DashboardTab() {
         hydrateActivityFeed(await loadHorizonActivity(addr), { merge: true });
         setActivityError(null);
       } catch (err) {
-        setActivityError(err instanceof Error ? err.message : 'Could not load activity.');
+        setActivityError(errorMessage(err));
       } finally {
         // Settled, not "succeeded": a failed load must still stop the skeleton,
         // otherwise it spins forever with no way to say what went wrong.

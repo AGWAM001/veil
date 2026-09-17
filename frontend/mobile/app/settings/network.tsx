@@ -1,3 +1,4 @@
+import { errorMessage } from '../../lib/errorMessage';
 import { useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -61,7 +62,7 @@ export default function NetworkScreen() {
       await requirePasskey();
       setProbe('ok');
     } catch (err) {
-      setProbe(err instanceof Error ? err.message : 'Passkey check failed.');
+      setProbe(errorMessage(err));
     }
   };
 

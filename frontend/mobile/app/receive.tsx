@@ -1,3 +1,4 @@
+import { errorMessage } from '../lib/errorMessage';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Pressable, Share, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -82,7 +83,7 @@ export default function ReceiveScreen() {
       await enableUsdc();
       setReadiness(await checkReceiveReadiness(feePayer));
     } catch (err) {
-      setEnableError(err instanceof Error ? err.message : 'Could not add the USDC trustline.');
+      setEnableError(errorMessage(err));
     } finally {
       setEnabling(false);
     }
