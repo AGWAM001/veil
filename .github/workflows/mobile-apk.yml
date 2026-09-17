@@ -37,7 +37,9 @@ jobs:
       EAS_SKIP_AUTO_FINGERPRINT: '1'
       APK_PATH: ${{ github.workspace }}/veil-community.apk
     steps:
+      # Runs before checkout, so it cannot use the frontend/mobile default.
       - name: Require EXPO_TOKEN
+        working-directory: .
         run: |
           if [ -z "$EXPO_TOKEN" ]; then
             echo "::error::Add the EXPO_TOKEN secret (Settings → Secrets and variables → Actions) before building."
