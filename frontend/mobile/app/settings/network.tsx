@@ -1,3 +1,4 @@
+import { redactEndpoint } from '../../lib/redactEndpoint';
 import { errorMessage } from '../../lib/errorMessage';
 import { useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
@@ -253,32 +254,6 @@ function NetworkOption({
   );
 }
 
-/**
- * Show an endpoint without showing its credential.
- *
- * Provider RPC URLs carry the API key in the path — QuickNode's is the hex
- * segment after the host — so printing the URL verbatim puts a working key on
- * screen, in screenshots, and in any screen recording. The host is the useful
- * part for a human checking which provider is live; the rest is a secret and is
- * masked.
- *
- * This is defence in depth, not a fix for the underlying exposure: anything in
- * an EXPO_PUBLIC_ variable ships inside the bundle and can be extracted from
- * the APK. The real protection is a key scoped to read-only RPC and rotated
- * when leaked.
- */
-function redactEndpoint(url: string): string {
-  if (!url) return '';
-  try {
-    const parsed = new URL(url);
-    const path = parsed.pathname.replace(/^\/|\/$/g, '');
-    if (!path) return `${parsed.protocol}//${parsed.host}`;
-    return `${parsed.protocol}//${parsed.host}/${'•'.repeat(8)}`;
-  } catch {
-    // Not a parseable URL — show nothing rather than risk showing a secret.
-    return '(set)';
-  }
-}
 
 function Detail({ label, value }: { label: string; value: string }) {
   const { colors } = useTheme();

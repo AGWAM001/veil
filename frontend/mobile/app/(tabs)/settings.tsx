@@ -81,7 +81,7 @@ export default function SettingsScreen() {
   ];
 
   const security: Row[] = [
-    { key: 'passkeys', title: 'Passkeys', subtitle: 'Devices registered on this wallet', onPress: () => {} },
+    { key: 'passkeys', title: 'Passkeys', subtitle: 'Devices registered on this wallet', onPress: () => router.push('/settings/passkeys') },
     { key: 'recovery', title: 'Recovery', subtitle: 'Trusted servers to recover access', onPress: () => router.push('/recover') },
     { key: 'lock', title: 'Security & lock', subtitle: 'Auto-lock after inactivity', onPress: () => router.push('/settings/security') },
   ];
@@ -165,7 +165,7 @@ export default function SettingsScreen() {
     },
     { key: 'multisig', title: 'Multisig', subtitle: 'View signers and approval threshold', onPress: () => router.push('/multisig') },
     { key: 'contacts', title: 'Address book', subtitle: 'Saved recipients and labels', onPress: () => router.push('/contacts') },
-    { key: 'about', title: 'About', subtitle: 'Version, licenses, and support', onPress: () => {} },
+    { key: 'about', title: 'About', subtitle: 'Version, updates, licences and support', onPress: () => router.push('/settings/about') },
   ];
   // NoticeModal rather than Alert.alert: these report an outcome, and the
   // platform dialog renders "Funded" and "Funding failed" identically.

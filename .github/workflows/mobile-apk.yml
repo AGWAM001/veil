@@ -18,7 +18,8 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  # Write, because a successful build is published as a release below.
+  contents: write
 
 concurrency:
   group: mobile-apk
@@ -121,3 +122,36 @@ jobs:
           path: ${{ env.APK_PATH }}
           retention-days: 7
           if-no-files-found: error
+
+      # Artifacts above need a GitHub login and expire after 7 days, so the app
+      # cannot point testers at them. A release is public and permanent, and the
+      # About screen reads this list to answer "am I on the latest build?".
+      # Tagged by versionCode, which is what the app compares against.
+      - name: Publish the APK as a release
+        working-directory: .
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          aapt2="$(ls "${ANDROID_HOME:-$ANDROID_SDK_ROOT}"/build-tools/*/aapt2 2>/dev/null | sort -V | tail -1)"
+          if [ -z "$aapt2" ]; then
+            echo "::error::aapt2 not found in the Android SDK; not publishing a release."
+            exit 1
+          fi
+          badging=$("$aapt2" dump badging "$APK_PATH")
+          code=$(echo "$badging" | sed -n "s/.*versionCode='\([0-9]*\)'.*/\1/p" | head -1)
+          name=$(echo "$badging" | sed -n "s/.*versionName='\([^']*\)'.*/\1/p" | head -1)
+          if [ -z "$code" ]; then
+            echo "::error::Could not read versionCode from the APK; not publishing a release."
+            exit 1
+          fi
+          tag="mobile-v$code"
+          cp "$APK_PATH" "veil-$tag.apk"
+          if gh release view "$tag" >/dev/null 2>&1; then
+            echo "Release $tag already exists; replacing its APK."
+            gh release upload "$tag" "veil-$tag.apk" --clobber
+          else
+            gh release create "$tag" "veil-$tag.apk" \
+              --title "Veil Android $name (build $code)" \
+              --notes "Community build $code, from ${{ github.sha }}. Installs over any earlier Veil build; your wallet and passkey stay as they are."
+          fi
+          echo "- Release: $tag" >> "$GITHUB_STEP_SUMMARY"

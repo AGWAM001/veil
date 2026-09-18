@@ -340,7 +340,7 @@ export default function EarnRoute() {
                   </View>
                 ) : pools.length === 0 ? (
                   <Card style={styles.card}>
-                    <Text style={[typography.heading, styles.cardTitle]}>Couldn't load the pools</Text>
+                    <Text style={[typography.heading, styles.cardTitle]}>Couldn&apos;t load the pools</Text>
                     <Text style={styles.muted}>
                       The lending pools on {network.displayName} did not answer. Pull down to try again.
                     </Text>
@@ -418,7 +418,7 @@ export default function EarnRoute() {
                     <Text style={styles.positive}>
                       {formatAmount(parsedAmount * selected.reserve.supplyApy)} {selected.reserve.code}
                     </Text>{' '}
-                    a year at today's rate.
+                    a year at today&apos;s rate.
                   </Text>
                 ) : null}
               </Card>
@@ -480,7 +480,7 @@ export default function EarnRoute() {
           {step === 'error' ? (
             <Card variant="md" style={styles.cardCentered}>
               <Text style={styles.errorMark}>!</Text>
-              <Text style={[typography.heading, styles.cardTitle]}>That didn't go through</Text>
+              <Text style={[typography.heading, styles.cardTitle]}>That didn&apos;t go through</Text>
               {errorMsg ? <Text style={[styles.muted, styles.center]}>{errorMsg}</Text> : null}
               <Button label="Try again" variant="ghost" onPress={() => setStep('pools')} />
             </Card>
