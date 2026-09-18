@@ -151,6 +151,7 @@ jobs:
             gh release upload "$tag" "veil-$tag.apk" --clobber
           else
             gh release create "$tag" "veil-$tag.apk" \
+              --target "$GITHUB_SHA" \
               --title "Veil Android $name (build $code)" \
               --notes "Community build $code, from ${{ github.sha }}. Installs over any earlier Veil build; your wallet and passkey stay as they are."
           fi
