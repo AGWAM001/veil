@@ -19,7 +19,28 @@ const BASE_URL = process.env['EXPO_PUBLIC_WRAITH_URL']?.replace(/\/+$/, '') ?? '
 const AVAILABILITY_KEY = 'veil_offramp_available';
 const TIMEOUT_MS = 20_000;
 
+/**
+ * Creating an order is the slowest call here: the provider mints a deposit
+ * wallet, and may rate-limit us into a retry on the way. wraith bounds one
+ * order creation to 35s, so this sits above that — the server should always
+ * be the one to give up, never this client.
+ *
+ * A client that quits first does not stop the work. It produced the bug this
+ * replaces: the order was created, the app said cash out was unavailable, and
+ * the user only ever saw it by tapping again.
+ */
+const CREATE_ORDER_TIMEOUT_MS = 60_000;
+
+/** The deployment has no offramp configured, or none is reachable. */
 export class OfframpUnavailable extends Error {}
+
+/**
+ * We stopped waiting. Deliberately NOT an OfframpUnavailable: on a write,
+ * a timeout says nothing about whether the work happened, and telling
+ * someone their cash-out failed when it is being created is the worse of
+ * the two wrong answers.
+ */
+export class OfframpTimeout extends Error {}
 
 export interface OfframpRate {
   rate: number;
@@ -86,10 +107,13 @@ export function withoutProviderName(message: string): string {
   return replaced.charAt(0).toUpperCase() + replaced.slice(1);
 }
 
-async function call<T>(path: string, init: { method?: string; body?: unknown } = {}): Promise<T> {
+async function call<T>(
+  path: string,
+  init: { method?: string; body?: unknown; timeoutMs?: number } = {},
+): Promise<T> {
   if (!BASE_URL) throw new OfframpUnavailable('No backend configured for offramp.');
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+  const timer = setTimeout(() => controller.abort(), init.timeoutMs ?? TIMEOUT_MS);
   try {
     const res = await fetch(`${BASE_URL}${path}`, {
       method: init.method ?? 'GET',
@@ -105,7 +129,7 @@ async function call<T>(path: string, init: { method?: string; body?: unknown } =
   } catch (err) {
     if (err instanceof OfframpUnavailable) throw err;
     if ((err as Error)?.name === 'AbortError') {
-      throw new OfframpUnavailable('The offramp service did not respond.');
+      throw new OfframpTimeout('The offramp service did not respond in time.');
     }
     throw err;
   } finally {
@@ -178,8 +202,24 @@ export interface CreateOrderParams {
   idempotencyKey: string;
 }
 
-export function createOrder(params: CreateOrderParams): Promise<OfframpOrder> {
-  return call<OfframpOrder>('/offramp/orders', { method: 'POST', body: params });
+export async function createOrder(params: CreateOrderParams): Promise<OfframpOrder> {
+  const post = () =>
+    call<OfframpOrder>('/offramp/orders', {
+      method: 'POST',
+      body: params,
+      timeoutMs: CREATE_ORDER_TIMEOUT_MS,
+    });
+
+  try {
+    return await post();
+  } catch (err) {
+    if (!(err instanceof OfframpTimeout)) throw err;
+    // The order may exist: we stopped listening, the backend did not stop
+    // working. Repeating the identical request is safe and is what the user
+    // used to have to do by hand — wraith keys orders on the idempotency key
+    // and returns the one it already made rather than making a second.
+    return await post();
+  }
 }
 
 export function getOrderStatus(orderId: string): Promise<OfframpStatus> {

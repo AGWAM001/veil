@@ -19,6 +19,7 @@ import type { ThemeColors } from '../lib/theme';
 import { fontFamily } from '../theme/typography';
 import { NIGERIAN_BANKS, bankName } from '../lib/nigerianBanks';
 import {
+  OfframpTimeout,
   OfframpUnavailable,
   createOrder,
   getOfframpRate,
@@ -380,7 +381,13 @@ export default function CashOutScreen() {
       setError(
         err instanceof OfframpUnavailable
           ? 'Cash out is unavailable right now. Try again shortly.'
-          : errorMessage(err),
+          : err instanceof OfframpTimeout
+            ? // Both the request and its automatic repeat ran out of time, so we
+              // genuinely do not know whether the order exists. Say that, rather
+              // than inviting a tap that might create a second one.
+              "This is taking longer than usual. Your cash-out may still have been created " +
+              '\u2014 check Activity before starting another one.'
+            : errorMessage(err),
       );
     } finally {
       setBusy(false);
