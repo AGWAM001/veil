@@ -143,10 +143,24 @@ export function BuyIcon({ size, color = 'currentColor', strokeWidth = DEFAULT_ST
 
 // ── Secondary features ───────────────────────────────────────────────────────
 
+/**
+ * Agent — a robot: rounded head, antenna, eyes, side ears. It replaced a head
+ * over shoulders, which is the universal "profile" glyph and read as an account
+ * tab rather than the assistant.
+ */
 export function AgentIcon({ size, color = 'currentColor', strokeWidth = DEFAULT_STROKE }: IconProps) {
   return (
     <Base size={size}>
-      <Path d="M12 2a4 4 0 014 4v1a4 4 0 01-8 0V6a4 4 0 014-4zm0 10c-4 0-7 2-7 4v1h14v-1c0-2-3-4-7-4z" stroke={color} strokeWidth={strokeWidth} strokeLinejoin="round" />
+      <Rect x="4.5" y="8" width="15" height="12" rx="3.5" stroke={color} strokeWidth={strokeWidth} strokeLinejoin="round" />
+      <Path
+        d="M12 8V5M2.5 12.5v3M21.5 12.5v3M10 17h4"
+        stroke={color}
+        strokeWidth={strokeWidth}
+        strokeLinecap="round"
+      />
+      <Circle cx="12" cy="3.6" r="1.4" stroke={color} strokeWidth={strokeWidth} />
+      <Circle cx="9.25" cy="12.75" r="1.1" fill={color} />
+      <Circle cx="14.75" cy="12.75" r="1.1" fill={color} />
     </Base>
   );
 }
