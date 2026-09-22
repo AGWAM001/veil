@@ -7,7 +7,7 @@ import {
 } from './llm.js'
 import { HORIZON_URL, NETWORK, SOROBAN_RPC_URL } from './network.js'
 import { getPrice } from './price.js'
-import { buildSwap, buildPayment, getBalances } from './txBuilder.js'
+import { buildPayment, getBalances } from './txBuilder.js'
 
 // ── Agent configuration ──────────────────────────────────────────────────────
 
@@ -107,23 +107,20 @@ const tools: ToolSpec[] = [
     },
   },
   {
-    name: 'build_swap',
+    name: 'open_swap',
     description:
-      'Build a Stellar path payment transaction to swap one asset for another at the best available rate. ' +
-      'ALWAYS call get_price first, and ALWAYS call request_user_approval after building — never execute without approval.',
+      'Hand a swap to the wallet\'s Swap screen, filled in with the assets and amount. ' +
+      'The Swap screen fetches its own live quote across Soroswap, Phoenix, Aqua and the Stellar DEX, ' +
+      'shows the route and slippage, and the user confirms there with their passkey. ' +
+      'Use this for every swap — do not build swap transactions yourself.',
     input_schema: {
       type: 'object' as const,
       properties: {
-        from_asset: { type: 'string', description: '"XLM" or "CODE:ISSUER"' },
-        to_asset: { type: 'string', description: '"XLM" or "CODE:ISSUER"' },
-        amount: { type: 'number', description: 'Amount of from_asset to swap' },
-        min_received: {
-          type: 'number',
-          description: 'Minimum to_asset to accept for slippage protection. Default: amount * estimated_price * 0.995',
-        },
-        wallet_address: { type: 'string' },
+        from_asset: { type: 'string', description: 'Asset code to sell: XLM, USDC, EURC or AQUA' },
+        to_asset: { type: 'string', description: 'Asset code to buy: XLM, USDC, EURC or AQUA' },
+        amount: { type: 'string', description: 'Amount of from_asset to sell, e.g. "10" (omit if the user did not say)' },
       },
-      required: ['from_asset', 'to_asset', 'amount', 'wallet_address'],
+      required: ['from_asset', 'to_asset'],
     },
   },
   {
@@ -212,7 +209,7 @@ const SYSTEM_PROMPT = (walletAddress: string, feePayerAddress: string, profile?:
 You are a helpful AI agent embedded in the Veil passkey smart wallet on Stellar.
 
 The user's wallet contract address is: ${walletAddress}
-The user's fee-payer address (use this as wallet_address in ALL build_swap and build_payment calls): ${feePayerAddress}
+The user's fee-payer address (use this as wallet_address in ALL build_payment calls): ${feePayerAddress}
 ${nameClause}
 ${langClause}
 ${personaClause}
@@ -220,18 +217,18 @@ ${roleClause}
 
 You help users:
 - Check their balance and recent transfers
-- Get live prices and swap routes (SDEX vs AMM)
-- Execute swaps and payments — always with biometric approval
+- Get live prices
+- Set up swaps (opened in the Swap screen) and payments — the user always approves with their passkey
 
 RULES:
-1. Before recommending any swap, call get_price to get the live rate.
-2. Before executing any transaction, ALWAYS call request_user_approval — never skip this.
-3. For swaps, set min_received = estimated_output * 0.995 (0.5% slippage) unless user specifies otherwise.
-4. Inform the user when a small x402 micropayment is being auto-paid to fetch data.
+1. For any swap, call open_swap. Never build a swap transaction yourself; the Swap screen quotes it and the user confirms there.
+2. Before a payment executes, ALWAYS call request_user_approval — never skip this.
+3. Use get_price when the user asks about a price or wants to weigh a swap first.
+4. Prices come from Soroswap's aggregator when available, otherwise the Stellar DEX; say which when it matters.
 5. Format amounts clearly: "500 XLM", "47.3 USDC".
 6. If you need a recipient address and the user hasn't provided one, ask before building.
 7. Keep responses concise. Use bullet points for multi-step flows.
-8. Always use the fee-payer address (not the contract address) as wallet_address when calling build_swap or build_payment.`
+8. Always use the fee-payer address (not the contract address) as wallet_address when calling build_payment.`
 }
 
 /**
@@ -258,7 +255,22 @@ export interface AgentResult {
   response: string
   pendingTxXdr?: string
   pendingTxSummary?: string
+  /**
+   * A swap for the app's Swap screen to open, pre-filled. The agent does not
+   * build swaps: the Swap screen quotes across more venues than a single path
+   * payment reaches and has its own review, so the agent hands off to it.
+   */
+  swapIntent?: SwapIntent
 }
+
+export interface SwapIntent {
+  from: string
+  to: string
+  amount?: string
+}
+
+/** Assets the apps' Swap screens offer. */
+const SWAP_CODES = new Set(['XLM', 'USDC', 'EURC', 'AQUA'])
 
 /**
  * Run a single agent turn. Used internally by both the server and createVeilAgent.
@@ -276,6 +288,7 @@ export async function runAgent(
 ): Promise<AgentResult> {
   let pendingTxXdr: string | undefined
   let pendingTxSummary: string | undefined
+  let swapIntent: SwapIntent | undefined
 
   const wraithUrl = urls?.wraithUrl ?? process.env.WRAITH_URL ?? ''
   const horizonUrl = urls?.horizonUrl ?? HORIZON_URL
@@ -365,13 +378,18 @@ export async function runAgent(
         return JSON.stringify(balances)
       }
 
-      case 'build_swap': {
-        const swapInput = {
-          ...(input as unknown as Parameters<typeof buildSwap>[0]),
-          wallet_address: feePayerAddress ?? (input as any).wallet_address,
+      case 'open_swap': {
+        const from = String(input.from_asset ?? '').trim().toUpperCase()
+        const to = String(input.to_asset ?? '').trim().toUpperCase()
+        const amount = input.amount === undefined ? undefined : String(input.amount).trim()
+        if (!SWAP_CODES.has(from) || !SWAP_CODES.has(to) || from === to) {
+          return JSON.stringify({ error: 'Swaps support XLM, USDC, EURC and AQUA, between two different assets.' })
         }
-        const xdr = await buildSwap(swapInput)
-        return JSON.stringify({ transaction_xdr: xdr, status: 'built' })
+        if (amount !== undefined && !/^\d+(\.\d{1,7})?$/.test(amount)) {
+          return JSON.stringify({ error: 'amount must be a plain number like "10" or "2.5"' })
+        }
+        swapIntent = { from, to, ...(amount ? { amount } : {}) }
+        return JSON.stringify({ status: 'swap_screen_ready' })
       }
 
       case 'build_payment': {
@@ -401,9 +419,9 @@ export async function runAgent(
     tools,
   )
 
-  // Agentic loop, bounded. Each round is a paid (or rate-limited) model call and
-  // may be a paid x402 tool call, so a model that keeps calling tools — or a
-  // prompt written to make it — must not be able to loop forever.
+  // Agentic loop, bounded. Each round is a paid or rate-limited model call, so a
+  // model that keeps calling tools — or a prompt written to make it — must not
+  // be able to loop forever.
   let turn = await session.next()
   let rounds = 0
   while (turn.toolCalls.length > 0) {
@@ -413,6 +431,7 @@ export async function runAgent(
           "I couldn't finish that in one go. Try asking for one thing at a time.",
         pendingTxXdr,
         pendingTxSummary,
+        swapIntent,
       }
     }
 
@@ -430,7 +449,7 @@ export async function runAgent(
     turn = await session.next()
   }
 
-  return { response: turn.text, pendingTxXdr, pendingTxSummary }
+  return { response: turn.text, pendingTxXdr, pendingTxSummary, swapIntent }
 }
 
 // ── createVeilAgent — library-friendly wrapper ───────────────────────────────

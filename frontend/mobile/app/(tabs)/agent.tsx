@@ -18,6 +18,7 @@ import { Horizon, Keypair, TransactionBuilder, type Transaction } from '@stellar
  *     model output is never interpreted as markup.
  */
 
+import { useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
@@ -128,6 +129,16 @@ export default function AgentScreen() {
 
   const handleReply = useCallback(
     (reply: AgentReply) => {
+      if (reply.swapIntent) {
+        appendMessage({
+          id: nextMessageId('swap'),
+          kind: 'swap',
+          text: reply.response,
+          intent: reply.swapIntent,
+        });
+        return;
+      }
+
       if (!reply.pendingTxXdr) {
         appendMessage({ id: nextMessageId('agent'), kind: 'agent', text: reply.response });
         return;
@@ -416,7 +427,39 @@ function MessageRow({
           </View>
         </View>
       );
+
+    case 'swap':
+      return (
+        <View style={styles.row}>
+          <View style={[styles.bubble, styles.bubbleAgent]}>
+            {message.text.trim() ? <RichText text={message.text} /> : null}
+            <SwapHandoff intent={message.intent} />
+          </View>
+        </View>
+      );
   }
+}
+
+/**
+ * The agent does not build swaps: it hands them to the Swap screen, which
+ * quotes across Soroswap, Phoenix, Aqua and the Stellar DEX, shows the route and
+ * slippage, and asks for the passkey there.
+ */
+function SwapHandoff({ intent }: { intent: { from: string; to: string; amount?: string } }) {
+  const router = useRouter();
+  return (
+    <View style={{ marginTop: 10 }}>
+      <Button
+        label={`Open Swap · ${intent.amount ? `${intent.amount} ` : ''}${intent.from} → ${intent.to}`}
+        onPress={() =>
+          router.push({
+            pathname: '/swap',
+            params: { from: intent.from, to: intent.to, ...(intent.amount ? { amount: intent.amount } : {}) },
+          })
+        }
+      />
+    </View>
+  );
 }
 
 /** Agent prose with `**bold**` and `` `code` `` rendered as text, never as markup. */

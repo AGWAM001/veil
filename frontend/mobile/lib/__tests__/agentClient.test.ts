@@ -1,6 +1,7 @@
 import {
   PRODUCTION_AGENT_URL,
   historyFromMessages,
+  parseSwapIntent,
   resolveAgentUrl,
   sendAgentMessage,
 } from '../agentClient';
@@ -80,5 +81,19 @@ describe('sendAgentMessage', () => {
       throw new TypeError('Network request failed');
     }) as unknown as typeof fetch;
     await expect(sendAgentMessage(request, offline)).rejects.toThrow(/Check your connection/);
+  });
+});
+
+describe('parseSwapIntent', () => {
+  it('accepts a swap hand-off', () => {
+    expect(parseSwapIntent({ from: 'XLM', to: 'USDC', amount: '10' })).toEqual({ from: 'XLM', to: 'USDC', amount: '10' });
+    expect(parseSwapIntent({ from: 'XLM', to: 'USDC' })).toEqual({ from: 'XLM', to: 'USDC' });
+  });
+
+  it('drops anything that should not reach navigation', () => {
+    expect(parseSwapIntent({ from: 'XLM', to: 'XLM' })).toBeUndefined();
+    expect(parseSwapIntent({ from: '../settings', to: 'USDC' })).toBeUndefined();
+    expect(parseSwapIntent({ from: 'XLM', to: 'USDC', amount: '-1' })).toEqual({ from: 'XLM', to: 'USDC' });
+    expect(parseSwapIntent('XLM→USDC')).toBeUndefined();
   });
 });

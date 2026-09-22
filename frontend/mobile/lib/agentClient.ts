@@ -9,7 +9,7 @@
  * user can resend; there is no socket to lose when the app is backgrounded.
  */
 
-import type { AgentMessage } from './agentMessages';
+import type { AgentMessage, SwapIntent } from './agentMessages';
 
 /** Who the agent is talking to. Stored by lib/agentProfile.ts. */
 export type AgentUserProfile = {
@@ -54,7 +54,7 @@ export function historyFromMessages(messages: AgentMessage[]): AgentTurn[] {
   const turns: AgentTurn[] = [];
   for (const message of messages) {
     if (message.kind === 'user') turns.push({ role: 'user', content: message.text });
-    else if ((message.kind === 'agent' || message.kind === 'proposal') && message.text.trim()) {
+    else if ((message.kind === 'agent' || message.kind === 'proposal' || message.kind === 'swap') && message.text.trim()) {
       turns.push({ role: 'assistant', content: message.text });
     }
   }
@@ -65,7 +65,28 @@ export type AgentReply = {
   response: string;
   pendingTxXdr?: string;
   pendingTxSummary?: string;
+  swapIntent?: SwapIntent;
 };
+
+/**
+ * A swap hand-off from the server, or undefined when it is not one this app can
+ * open. Only short ticker codes and a plain positive amount get through — the
+ * Swap screen checks again, but nothing malformed should reach navigation.
+ */
+export function parseSwapIntent(value: unknown): SwapIntent | undefined {
+  if (!value || typeof value !== 'object') return undefined;
+  const v = value as Record<string, unknown>;
+  const code = (c: unknown) =>
+    typeof c === 'string' && /^[A-Z0-9]{1,12}$/.test(c) ? c : undefined;
+  const from = code(v.from);
+  const to = code(v.to);
+  if (!from || !to || from === to) return undefined;
+  const amount =
+    typeof v.amount === 'string' && /^\d+(\.\d{1,7})?$/.test(v.amount) && Number(v.amount) > 0
+      ? v.amount
+      : undefined;
+  return { from, to, ...(amount ? { amount } : {}) };
+}
 
 export type AgentRequest = {
   message: string;
@@ -102,6 +123,7 @@ export async function sendAgentMessage(
       response: typeof data.response === 'string' ? data.response : '',
       pendingTxXdr: typeof data.pendingTxXdr === 'string' ? data.pendingTxXdr : undefined,
       pendingTxSummary: typeof data.pendingTxSummary === 'string' ? data.pendingTxSummary : undefined,
+      swapIntent: parseSwapIntent((data as { swapIntent?: unknown }).swapIntent),
     };
   } catch (err) {
     if ((err as Error)?.name === 'AbortError') {

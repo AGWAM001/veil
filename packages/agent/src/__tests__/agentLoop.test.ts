@@ -84,4 +84,30 @@ describe('runAgent', () => {
     // Bounded: eight rounds of tool results, then it gives up.
     expect(llm.results).toHaveLength(8)
   })
+
+  it('hands a swap to the Swap screen instead of building one', async () => {
+    const llm = scripted([
+      { text: '', toolCalls: [{ id: 's', name: 'open_swap', input: { from_asset: 'xlm', to_asset: 'USDC', amount: '10' } }] },
+      { text: 'Opening Swap with 10 XLM to USDC.', toolCalls: [] },
+    ])
+    const result = await runAgent('swap 10 xlm to usdc', wallet, [], undefined, undefined, llm)
+    expect(result.swapIntent).toEqual({ from: 'XLM', to: 'USDC', amount: '10' })
+    expect(result.pendingTxXdr).toBeUndefined()
+  })
+
+  it('refuses a swap between unsupported or identical assets, and a malformed amount', async () => {
+    for (const input of [
+      { from_asset: 'XLM', to_asset: 'SCAMCOIN' },
+      { from_asset: 'USDC', to_asset: 'USDC' },
+      { from_asset: 'XLM', to_asset: 'USDC', amount: '10e9' },
+    ]) {
+      const llm = scripted([
+        { text: '', toolCalls: [{ id: 'x', name: 'open_swap', input }] },
+        { text: 'done', toolCalls: [] },
+      ])
+      const result = await runAgent('swap', wallet, [], undefined, undefined, llm)
+      expect(result.swapIntent).toBeUndefined()
+      expect(llm.results[0][0].content).toMatch(/error/)
+    }
+  })
 })

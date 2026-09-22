@@ -1,13 +1,19 @@
-import { HORIZON_URL, USDC_ISSUER } from './network.js'
+import { Asset } from '@stellar/stellar-sdk'
+import { SoroswapSDK, SupportedNetworks, SupportedProtocols, TradeType } from '@soroswap/sdk'
+import { HORIZON_URL, NETWORK, NETWORK_PASSPHRASE, USDC_ISSUER } from './network.js'
 
 /**
- * Asset prices from Stellar's own DEX, via Horizon path-finding.
+ * Asset prices, from the same place the Swap screen gets them.
  *
- * This replaced the Lens oracle, which charged per call over x402 and made the
- * agent hold a funded key of its own. Horizon's strict-send paths answer the
- * question a user is actually asking — "if I sold one of these now, how many of
- * those would I get?" — including multi-hop routes through the order books and
- * liquidity pools, and it is free.
+ * First choice is Soroswap's aggregator, which routes across Soroswap, Phoenix,
+ * Aqua and the built-in DEX — the quote the Swap screen shows, so the agent and
+ * the screen never disagree on a price. It needs SOROSWAP_API_KEY (server-side)
+ * and is mainnet-only.
+ *
+ * Fallback is Horizon's strict-send path-finding over the built-in DEX (order
+ * books and classic pools): free, keyless, on both networks, but blind to
+ * smart-contract pools. Both replaced the Lens oracle, which charged per call
+ * over x402 and made the agent hold a funded key of its own.
  */
 
 export interface ResolvedAsset {
@@ -51,13 +57,65 @@ export interface PriceQuote {
   price: number
   /** How many hops the best route takes (0 = direct). */
   hops: number
-  source: 'stellar-dex'
+  source: 'soroswap' | 'stellar-dex'
+  /** Venues the Soroswap route uses, e.g. ["soroswap", "aqua"]. */
+  protocols?: string[]
+}
+
+/** Stellar amounts have 7 decimal places. */
+const ONE_UNIT = 10_000_000n
+
+/** The asset's Stellar Asset Contract id — what Soroswap quotes in. */
+function contractIdOf(asset: ResolvedAsset): string {
+  if (asset.horizon === 'native') return Asset.native().contractId(NETWORK_PASSPHRASE)
+  const [code, issuer] = asset.horizon.split(':')
+  return new Asset(code, issuer).contractId(NETWORK_PASSPHRASE)
+}
+
+async function soroswapPrice(a: ResolvedAsset, b: ResolvedAsset, apiKey: string): Promise<PriceQuote> {
+  const client = new SoroswapSDK({ apiKey, defaultNetwork: SupportedNetworks.MAINNET })
+  const quote = await client.quote({
+    assetIn: contractIdOf(a),
+    assetOut: contractIdOf(b),
+    amount: ONE_UNIT,
+    tradeType: TradeType.EXACT_IN,
+    // The same venues the Swap screen quotes across (frontend/mobile/lib/soroswap.ts).
+    protocols: [
+      SupportedProtocols.SOROSWAP,
+      SupportedProtocols.PHOENIX,
+      SupportedProtocols.AQUA,
+      SupportedProtocols.SDEX,
+    ],
+    slippageBps: 50,
+  })
+  if (!quote?.amountOut) throw new Error('no Soroswap route')
+  const plan = quote.routePlan ?? []
+  return {
+    pair: `${a.label}/${b.label}`,
+    price: Number(BigInt(quote.amountOut.toString())) / Number(ONE_UNIT),
+    // Soroswap's path includes both end assets; Horizon's lists only the ones in
+    // between. Count intermediates, so "hops" means the same from either source.
+    hops: Math.max(0, ...plan.map((r) => r.swapInfo.path.length - 2)),
+    source: 'soroswap',
+    protocols: [...new Set(plan.map((r) => String(r.swapInfo.protocol)))],
+  }
 }
 
 export async function getPrice(assetA: string, assetB: string): Promise<PriceQuote> {
   const a = resolveAsset(assetA)
   const b = resolveAsset(assetB)
   if (a.horizon === b.horizon) return { pair: `${a.label}/${b.label}`, price: 1, hops: 0, source: 'stellar-dex' }
+
+  const apiKey = process.env.SOROSWAP_API_KEY?.trim()
+  if (apiKey && NETWORK === 'mainnet') {
+    try {
+      return await soroswapPrice(a, b, apiKey)
+    } catch (err) {
+      // Soroswap down, rate-limited, or no route: the built-in DEX still has a
+      // price, and a slightly narrower quote beats no answer.
+      console.warn('[agent] Soroswap quote failed, using Horizon:', (err as Error).message)
+    }
+  }
 
   const params = new URLSearchParams({
     ...sourceParams(a),

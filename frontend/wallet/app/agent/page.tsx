@@ -24,6 +24,15 @@ interface Message {
   pendingTxSummary?: string
   /** What the transaction actually does, decoded here. Null when it would not decode. */
   review?: ProposalReview | null
+  /** A swap the agent handed to the Swap screen, which quotes and confirms it. */
+  swapIntent?: { from: string; to: string; amount?: string }
+}
+
+/** Link into the Swap screen, pre-filled. The Swap page validates it again. */
+function swapHref(intent: { from: string; to: string; amount?: string }): string {
+  const q = new URLSearchParams({ from: intent.from, to: intent.to })
+  if (intent.amount) q.set('amount', intent.amount)
+  return `/swap?${q}`
 }
 
 /** Earlier turns for the agent, as plain text. The server keeps no history. */
@@ -278,6 +287,9 @@ export default function AgentPage() {
       if (!res.ok) throw new Error(data?.error ?? `Request failed (${res.status})`)
 
       const msg: Message = { role: 'agent', content: data.response ?? '' }
+      if (data.swapIntent && typeof data.swapIntent.from === 'string' && typeof data.swapIntent.to === 'string') {
+        msg.swapIntent = data.swapIntent
+      }
       if (data.pendingTxXdr) {
         msg.pendingTxXdr = data.pendingTxXdr
         msg.pendingTxSummary = data.pendingTxSummary
@@ -635,6 +647,25 @@ export default function AgentPage() {
                 className="agent-bubble__content"
                 dangerouslySetInnerHTML={{ __html: renderAgentMarkup(msg.content) }}
               />
+
+              {/* Swap hand-off — the Swap screen quotes, shows the route and confirms */}
+              {msg.swapIntent && (
+                <div className="agent-tx-card">
+                  <div className="agent-tx-card__header">
+                    <span className="agent-tx-card__label">Swap ready</span>
+                  </div>
+                  <div className="agent-tx-card__summary">
+                    {msg.swapIntent.amount ? `${msg.swapIntent.amount} ` : ''}
+                    {msg.swapIntent.from} → {msg.swapIntent.to}
+                  </div>
+                  <button
+                    onClick={() => router.push(swapHref(msg.swapIntent!))}
+                    className="agent-tx-card__btn"
+                  >
+                    Open Swap
+                  </button>
+                </div>
+              )}
 
               {/* Transaction approval card — inline, passkey-gated */}
               {msg.pendingTxXdr && (

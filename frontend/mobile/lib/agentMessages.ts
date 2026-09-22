@@ -22,6 +22,9 @@ export type ProposalStatus =
   | { state: 'declined' }
   | { state: 'failed'; reason: string };
 
+/** A swap the agent handed to the Swap screen. Codes as the Swap screen lists them. */
+export type SwapIntent = { from: string; to: string; amount?: string };
+
 /** What a transaction the agent proposed will actually do, decoded locally. */
 export type ProposalReview = {
   /** Account that pays for and authorises the transaction. */
@@ -39,6 +42,8 @@ export type AgentMessage =
   | { id: string; kind: 'user'; text: string }
   /** Prose from the agent. */
   | { id: string; kind: 'agent'; text: string }
+  /** Prose from the agent plus a swap for the Swap screen to quote and confirm. */
+  | { id: string; kind: 'swap'; text: string; intent: SwapIntent }
   /** A failure, from the service or from this app. */
   | { id: string; kind: 'error'; text: string }
   /** App-generated context, never attributed to the agent. */

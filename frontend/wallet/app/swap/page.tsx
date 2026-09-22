@@ -4,7 +4,14 @@ import { spendableNativeXlm } from '@/lib/reserves'
 import { getUsdcIssuer } from '@/lib/network'
 import { inclusionFee } from '@/lib/fees'
 import { PageHeader, Card, SectionLabel, Pill } from '@/components/ui/primitives'
-import { DEST_CODES, makeDestAsset, resolveFlip, type StellarAsset } from './direction'
+import {
+  DEST_CODES,
+  makeDestAsset,
+  parseSwapPrefill,
+  resolveFlip,
+  type StellarAsset,
+  type SwapPrefill,
+} from './direction'
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import {
@@ -88,6 +95,18 @@ export default function SwapPage() {
   const server = new Server(network.horizonUrl)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
+  // A swap handed over by the agent (/swap?from=XLM&to=USDC&amount=10). Read on
+  // mount, before balances load, so the pay side can pick the named asset.
+  const prefillRef = useRef<SwapPrefill | null>(null)
+  useEffect(() => {
+    const prefill = parseSwapPrefill(window.location.search)
+    prefillRef.current = prefill
+    if (prefill.to && (DEST_CODES as readonly string[]).includes(prefill.to) && prefill.to !== prefill.from) {
+      setDestAsset(makeDestAsset(prefill.to, DEFAULT_USDC.issuer))
+    }
+    if (prefill.amount) setSourceAmount(prefill.amount)
+  }, [])
+
   // ── Load session ──
   useEffect(() => {
     const addr = walletSession.getItem('invisible_wallet_address')
@@ -116,7 +135,13 @@ export default function SwapPage() {
         }))
         setSpendableXlm(spendableNativeXlm(data))
         setSourceBalances(assets)
-        setSourceAsset(assets.find((a) => a.code === 'XLM') || assets[0])
+        // The asset the agent named, if the account holds it; otherwise XLM.
+        const wanted = prefillRef.current?.from
+        setSourceAsset(
+          (wanted && assets.find((a) => a.code === wanted)) ||
+            assets.find((a) => a.code === 'XLM') ||
+            assets[0],
+        )
       }
     } catch (err) {
       console.error('Failed to fetch balances', err)

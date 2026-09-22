@@ -1,5 +1,6 @@
 import { errorMessage } from '../lib/errorMessage';
 import { Keypair } from '@stellar/stellar-sdk';
+import { useLocalSearchParams } from 'expo-router';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Modal, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -48,9 +49,24 @@ export default function SwapScreen() {
   const { networkName } = useNetwork();
   const onTestnet = networkName === 'testnet';
 
-  const [tokenIn, setTokenIn] = useState<Token>(TOKENS[0]!);
-  const [tokenOut, setTokenOut] = useState<Token>(TOKENS[1]!);
-  const [amountIn, setAmountIn] = useState('');
+  // A swap handed over by the agent: /swap?from=XLM&to=USDC&amount=10. Only
+  // codes this screen lists and a plain positive amount are taken; anything else
+  // leaves the ordinary defaults, so a bad link opens an ordinary form.
+  const prefill = useLocalSearchParams<{ from?: string; to?: string; amount?: string }>();
+  const prefillToken = (code: string | string[] | undefined): Token | undefined =>
+    typeof code === 'string' ? TOKENS.find((t) => t.code === code.toUpperCase()) : undefined;
+  const prefillIn = prefillToken(prefill.from);
+  const prefillOut = prefillToken(prefill.to);
+  const samePair = !!prefillIn && prefillIn.code === prefillOut?.code;
+  const [tokenIn, setTokenIn] = useState<Token>(prefillIn ?? TOKENS[0]!);
+  const [tokenOut, setTokenOut] = useState<Token>(
+    (!samePair && prefillOut) || (prefillIn?.code === TOKENS[1]!.code ? TOKENS[0]! : TOKENS[1]!),
+  );
+  const [amountIn, setAmountIn] = useState(
+    typeof prefill.amount === 'string' && /^\d+(\.\d{1,7})?$/.test(prefill.amount) && Number(prefill.amount) > 0
+      ? prefill.amount
+      : '',
+  );
   const [picker, setPicker] = useState<null | 'in' | 'out'>(null);
   const [holdings, setHoldings] = useState<Holding[]>([]);
 
