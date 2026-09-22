@@ -8,6 +8,7 @@ import { useInactivityLock } from '@/hooks/useInactivityLock'
 import { getNetwork } from '@/lib/network'
 import { requirePasskey } from '@/lib/passkeyAuth'
 import { walletLocal, walletSession } from '@/lib/walletStorage'
+import { resolveAgentUrl } from '@/lib/agentUrl'
 
 const network = getNetwork()
 
@@ -213,7 +214,7 @@ export default function AgentPage() {
   const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const connect = useCallback(() => {
-    const wsUrl = process.env.NEXT_PUBLIC_AGENT_WS_URL ?? 'ws://localhost:3001'
+    const wsUrl = resolveAgentUrl(process.env.NEXT_PUBLIC_AGENT_WS_URL)
     const ws = new WebSocket(wsUrl)
     wsRef.current = ws
 

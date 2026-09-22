@@ -173,9 +173,49 @@ export function parseServerMessage(raw: unknown): AgentServerMessage | null {
   }
 }
 
-/** The agent server URL, from the Expo env with a localhost fallback for `npm run agent`. */
+/** The hosted agent. Used by release builds when no URL is configured. */
+export const PRODUCTION_AGENT_URL = 'wss://veil-agent.onrender.com';
+
+/** Hosts where a plaintext socket is fine: this machine, an emulator, the LAN. */
+function isLocalHost(host: string): boolean {
+  return (
+    host === 'localhost' ||
+    host === '127.0.0.1' ||
+    host === '10.0.2.2' ||
+    /^192\.168\./.test(host) ||
+    /^10\./.test(host)
+  );
+}
+
+/**
+ * Which agent server to connect to.
+ *
+ * Release builds used to fall back to ws://localhost:3001 — on a phone, that is
+ * the phone itself, so the Agent tab could never connect. Unset now means the
+ * hosted agent in release builds and localhost only in development.
+ *
+ * A plaintext ws:// URL to anything but a local host is upgraded to wss://: the
+ * socket carries transaction XDR, which must not cross the internet readable
+ * and modifiable by anything on the path.
+ */
+export function resolveAgentUrl(configured: string | undefined, isDev: boolean): string {
+  const url = configured?.trim();
+  if (!url) return isDev ? 'ws://localhost:3001' : PRODUCTION_AGENT_URL;
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol === 'ws:' && !isLocalHost(parsed.hostname)) {
+      return 'wss:' + url.slice('ws:'.length);
+    }
+  } catch {
+    // Not a URL at all: fall back rather than open a socket to garbage.
+    return isDev ? 'ws://localhost:3001' : PRODUCTION_AGENT_URL;
+  }
+  return url;
+}
+
+/** The agent server URL for this build. */
 export function getAgentSocketUrl(): string {
-  return process.env['EXPO_PUBLIC_AGENT_WS_URL']?.trim() || 'ws://localhost:3001';
+  return resolveAgentUrl(process.env['EXPO_PUBLIC_AGENT_WS_URL'], __DEV__);
 }
 
 // ── Client ──────────────────────────────────────────────────────────────────────

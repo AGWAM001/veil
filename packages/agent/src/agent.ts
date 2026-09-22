@@ -1,4 +1,11 @@
-import Anthropic from '@anthropic-ai/sdk'
+import {
+  anthropicProvider,
+  openRouterProvider,
+  type ChatTurn,
+  type LlmProvider,
+  type ToolSpec,
+} from './llm.js'
+import { HORIZON_URL, NETWORK, SOROBAN_RPC_URL } from './network.js'
 import { Keypair } from '@stellar/stellar-sdk'
 import { createX402Fetch } from './x402Client.js'
 import { buildSwap, buildPayment, getBalances } from './txBuilder.js'
@@ -8,19 +15,25 @@ import { buildSwap, buildPayment, getBalances } from './txBuilder.js'
 export interface AgentConfig {
   /** Anthropic API key. Falls back to ANTHROPIC_API_KEY env var. */
   anthropicApiKey?: string
+  /** OpenRouter API key. When set, free OpenRouter models are used instead of Claude. */
+  openRouterApiKey?: string
+  /** OpenRouter model ids, in preference order. Default: llm.ts DEFAULT_FREE_MODELS. */
+  models?: string[]
+  /** A ready-made provider; overrides the keys above. */
+  provider?: LlmProvider
   /** Stellar secret key for x402 micropayments. */
   agentKeypairSecret: string
   /** Price oracle URL (x402-enabled). */
   oracleUrl: string
   /** Transfer indexer URL (x402-enabled). */
   wraithUrl: string
-  /** Horizon URL. Default: testnet. */
+  /** Horizon URL. Default: follows STELLAR_NETWORK (mainnet unless set to testnet). */
   horizonUrl?: string
-  /** Soroban RPC URL. Default: testnet. */
+  /** Soroban RPC URL. Default: follows STELLAR_NETWORK. */
   sorobanRpcUrl?: string
-  /** Stellar network: "testnet" or "mainnet". Default: "testnet". */
+  /** Stellar network: "testnet" or "mainnet". Default: STELLAR_NETWORK, else "mainnet". */
   network?: string
-  /** Claude model ID. Default: "claude-sonnet-4-6". */
+  /** Claude model ID (Anthropic provider only). Default: CLAUDE_MODEL, else "claude-opus-5". */
   model?: string
   /** Max conversation history turns to keep per wallet. Default: 20. */
   maxHistoryTurns?: number
@@ -29,34 +42,39 @@ export interface AgentConfig {
 // ── Resolved config (with defaults filled in) ────────────────────────────────
 
 interface ResolvedConfig {
-  anthropicApiKey?: string
+  llm: LlmProvider
   agentKeypair: Keypair
   oracleUrl: string
   wraithUrl: string
   horizonUrl: string
   sorobanRpcUrl: string
   network: string
-  model: string
   maxHistoryTurns: number
 }
 
 function resolveConfig(config: AgentConfig): ResolvedConfig {
   return {
-    anthropicApiKey: config.anthropicApiKey,
+    llm:
+      config.provider ??
+      (config.openRouterApiKey
+        ? openRouterProvider({ apiKey: config.openRouterApiKey, models: config.models })
+        : anthropicProvider({ apiKey: config.anthropicApiKey, model: config.model })),
     agentKeypair: Keypair.fromSecret(config.agentKeypairSecret),
     oracleUrl: config.oracleUrl,
     wraithUrl: config.wraithUrl,
-    horizonUrl: config.horizonUrl ?? 'https://horizon-testnet.stellar.org',
-    sorobanRpcUrl: config.sorobanRpcUrl ?? 'https://soroban-testnet.stellar.org',
-    network: config.network ?? 'testnet',
-    model: config.model ?? 'claude-sonnet-4-6',
+    horizonUrl: config.horizonUrl ?? HORIZON_URL,
+    sorobanRpcUrl: config.sorobanRpcUrl ?? SOROBAN_RPC_URL,
+    network: config.network ?? NETWORK,
     maxHistoryTurns: config.maxHistoryTurns ?? 20,
   }
 }
 
+/** Model rounds per user message before the agent gives up. */
+const MAX_TOOL_ROUNDS = 8
+
 // ── Tools ────────────────────────────────────────────────────────────────────
 
-const tools: Anthropic.Tool[] = [
+const tools: ToolSpec[] = [
   {
     name: 'get_price',
     description:
@@ -241,15 +259,13 @@ export async function runAgent(
   userMessage: string,
   walletAddress: string,
   agentKeypair: Keypair,
-  conversationHistory: Anthropic.MessageParam[],
+  conversationHistory: ChatTurn[],
   feePayerAddress: string | undefined,
   profile: UserProfile | undefined,
-  /** Pass an Anthropic client instance for reuse. */
-  client: Anthropic,
+  /** The model provider (see llm.ts). Reuse one per process. */
+  llm: LlmProvider,
   /** Service URLs — if not provided, falls back to process.env. */
   urls?: { oracleUrl?: string; wraithUrl?: string; horizonUrl?: string },
-  /** Model override. */
-  model?: string,
 ): Promise<AgentResult> {
   const { fetchWithPayment } = createX402Fetch(agentKeypair)
   let pendingTxXdr: string | undefined
@@ -257,8 +273,7 @@ export async function runAgent(
 
   const oracleUrl = urls?.oracleUrl ?? process.env.ORACLE_URL ?? ''
   const wraithUrl = urls?.wraithUrl ?? process.env.WRAITH_URL ?? ''
-  const horizonUrl = urls?.horizonUrl ?? process.env.HORIZON_URL ?? 'https://horizon-testnet.stellar.org'
-  const claudeModel = model ?? process.env.CLAUDE_MODEL ?? 'claude-sonnet-4-6'
+  const horizonUrl = urls?.horizonUrl ?? HORIZON_URL
 
   // ── SLASH COMMAND INTERCEPTION ─────────────────────────────────────────────
   const trimmedMessage = userMessage.trim();
@@ -377,54 +392,43 @@ export async function runAgent(
     }
   }
 
-  const messages: Anthropic.MessageParam[] = [
-    ...conversationHistory,
-    { role: 'user', content: userMessage },
-  ]
-
-  let response = await client.messages.create({
-    model: claudeModel,
-    max_tokens: 1024,
-    system: SYSTEM_PROMPT(walletAddress, feePayerAddress ?? walletAddress, profile),
+  const session = llm.start(
+    SYSTEM_PROMPT(walletAddress, feePayerAddress ?? walletAddress, profile),
+    conversationHistory,
+    userMessage,
     tools,
-    messages,
-  })
+  )
 
-  // Agentic loop — keep going until no more tool calls
-  while (response.stop_reason === 'tool_use') {
-    const toolUseBlocks = response.content.filter(
-      (b): b is Anthropic.ToolUseBlock => b.type === 'tool_use',
-    )
+  // Agentic loop, bounded. Each round is a paid (or rate-limited) model call and
+  // may be a paid x402 tool call, so a model that keeps calling tools — or a
+  // prompt written to make it — must not be able to loop forever.
+  let turn = await session.next()
+  let rounds = 0
+  while (turn.toolCalls.length > 0) {
+    if (++rounds > MAX_TOOL_ROUNDS) {
+      return {
+        response:
+          "I couldn't finish that in one go. Try asking for one thing at a time.",
+        pendingTxXdr,
+        pendingTxSummary,
+      }
+    }
 
-    const toolResults: Anthropic.ToolResultBlockParam[] = []
-    for (const toolUse of toolUseBlocks) {
+    const results: { id: string; content: string }[] = []
+    for (const call of turn.toolCalls) {
       let content: string
       try {
-        content = await executeTool(toolUse.name, toolUse.input as Record<string, unknown>)
+        content = await executeTool(call.name, call.input)
       } catch (err) {
         content = JSON.stringify({ error: (err as Error).message })
       }
-      toolResults.push({ type: 'tool_result', tool_use_id: toolUse.id, content })
+      results.push({ id: call.id, content })
     }
-
-    messages.push({ role: 'assistant', content: response.content })
-    messages.push({ role: 'user', content: toolResults })
-
-    response = await client.messages.create({
-      model: claudeModel,
-      max_tokens: 1024,
-      system: SYSTEM_PROMPT(walletAddress, feePayerAddress ?? walletAddress, profile),
-      tools,
-      messages,
-    })
+    session.addToolResults(results)
+    turn = await session.next()
   }
 
-  const text = response.content
-    .filter((b): b is Anthropic.TextBlock => b.type === 'text')
-    .map(b => b.text)
-    .join('')
-
-  return { response: text, pendingTxXdr, pendingTxSummary }
+  return { response: turn.text, pendingTxXdr, pendingTxSummary }
 }
 
 // ── createVeilAgent — library-friendly wrapper ───────────────────────────────
@@ -473,11 +477,7 @@ export interface VeilAgent {
 export function createVeilAgent(config: AgentConfig): VeilAgent {
   const resolved = resolveConfig(config)
 
-  const client = new Anthropic({
-    apiKey: resolved.anthropicApiKey,
-  })
-
-  const conversations = new Map<string, Anthropic.MessageParam[]>()
+  const conversations = new Map<string, ChatTurn[]>()
 
   return {
     publicKey: resolved.agentKeypair.publicKey(),
@@ -493,13 +493,12 @@ export function createVeilAgent(config: AgentConfig): VeilAgent {
         history,
         feePayerAddress,
         profile,
-        client,
+        resolved.llm,
         {
           oracleUrl: resolved.oracleUrl,
           wraithUrl: resolved.wraithUrl,
           horizonUrl: resolved.horizonUrl,
         },
-        resolved.model,
       )
 
       // Update conversation history

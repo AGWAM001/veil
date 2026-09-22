@@ -53,3 +53,8 @@ frontend/wallet/__shot.mjs
 # and embargoed issue drafts describe unfixed defects and must not be pushed.
 security-review/
 veil-assessment-*.pdf
+
+# Agent build output. `npm start` builds first (prestart), so a committed dist/
+# can only ever be stale: the one removed here was from April and ran none of
+# the August hardening (origin allowlist, token, rate limit).
+packages/agent/dist/

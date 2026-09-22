@@ -45,6 +45,7 @@ import {
   type ProposalStatus,
 } from '../../lib/agentMessages';
 import { useNetwork } from '../../hooks/useNetwork';
+import { getAgentSocketUrl } from '../../lib/agentSocket';
 import { signPayloadWithPasskey } from '../../lib/passkey';
 import { getPasskeyId, getSignerSecret, getWalletAddress } from '../../lib/walletStore';
 import { useTheme } from '../../hooks/useTheme';
@@ -196,7 +197,7 @@ export default function AgentScreen() {
   );
 
   const connect = useCallback(() => {
-    const url = process.env['EXPO_PUBLIC_AGENT_WS_URL']?.trim() || 'ws://localhost:3001';
+    const url = getAgentSocketUrl();
     const socket = new WebSocket(url);
     socketRef.current = socket;
 

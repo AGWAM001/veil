@@ -1,6 +1,9 @@
 import type { Keypair } from '@stellar/stellar-sdk'
+import { usdcContractId, X402_NETWORK } from './network.js'
+import { affordableOptions, policyFromEnv } from './x402Policy.js'
 
 export interface FetchWithPaymentOptions {
+  /** Per-request payment cap in USDC; overrides X402_MAX_AUTOPAY_USDC. 0 disables auto-pay. */
   maxAutoPayUsdc?: number
 }
 
@@ -10,6 +13,12 @@ export interface FetchWithPaymentOptions {
  * challenge using x402HTTPClient and retries with the payment header.
  */
 export function createX402Fetch(_agentKeypair: Keypair, _options: FetchWithPaymentOptions = {}) {
+  const envPolicy = policyFromEnv({ network: X402_NETWORK, usdcContractId: usdcContractId() })
+  const policy =
+    _options.maxAutoPayUsdc === undefined
+      ? envPolicy
+      : { ...envPolicy, maxAutoPayUsdc: _options.maxAutoPayUsdc }
+
   async function fetchWithPayment(url: string, init?: RequestInit): Promise<unknown> {
     const response = await fetch(url, init)
 
@@ -31,9 +40,7 @@ export function createX402Fetch(_agentKeypair: Keypair, _options: FetchWithPayme
       // @ts-ignore
       const { x402Client: CoreX402Client, x402HTTPClient } = await import('@x402/core/client')
 
-      const network = process.env.STELLAR_NETWORK === 'mainnet'
-        ? 'stellar:pubnet'
-        : 'stellar:testnet'
+      const network = X402_NETWORK
 
       const signer = createEd25519Signer(_agentKeypair.secret(), network)
       const scheme = new ExactStellarScheme(signer)
@@ -48,6 +55,14 @@ export function createX402Fetch(_agentKeypair: Keypair, _options: FetchWithPayme
         (name: string) => response.headers.get(name),
         body,
       )
+
+      // Keep only the options this agent is allowed to pay, so the client cannot
+      // choose another. Nothing left means no payment is made at all.
+      const { allowed, refused } = affordableOptions(paymentRequired.accepts ?? [], policy)
+      if (allowed.length === 0) {
+        throw new Error(`payment refused: ${refused.join('; ') || 'no payment options offered'}`)
+      }
+      paymentRequired.accepts = allowed
 
       const paymentPayload = await httpClient.createPaymentPayload(paymentRequired)
       const paymentHeaders = httpClient.encodePaymentSignatureHeader(paymentPayload)
