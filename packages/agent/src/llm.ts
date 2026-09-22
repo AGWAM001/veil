@@ -10,7 +10,7 @@ import Anthropic from '@anthropic-ai/sdk'
  * - **OpenRouter** (when `OPENROUTER_API_KEY` is set): free open-weight models
  *   through OpenRouter's chat-completions API, with automatic failover across
  *   several models, because the free list changes daily and any one model can
- *   vanish or rate-limit. Free tier: 20 requests/minute, and 50 a day — 1,000 a
+ *   vanish or be overloaded. Free tier: 20 requests/minute, and 50 a day — 1,000 a
  *   day once $10 of credit has been bought. A chat turn costs 2–4 requests.
  *
  * Each provider keeps its own native message list for the turn, so nothing is
@@ -150,6 +150,8 @@ export const DEFAULT_FREE_MODELS = [
   'qwen/qwen3.8-27b:free',
   'google/gemma-4-31b-it:free',
   'nvidia/nemotron-3-super-120b-a12b:free',
+  'nvidia/nemotron-3.5-lightning:free',
+  'google/gemma-4-26b-a4b-it:free',
 ]
 
 const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions'
@@ -181,34 +183,12 @@ export function openRouterProvider(options: { apiKey: string; models?: string[] 
 
       return {
         async next() {
-          const res = await fetch(OPENROUTER_URL, {
-            method: 'POST',
-            headers: {
-              Authorization: `Bearer ${options.apiKey}`,
-              'Content-Type': 'application/json',
-              // Attribution OpenRouter asks for; shows on their app rankings.
-              'HTTP-Referer': 'https://www.useveilapp.xyz',
-              'X-Title': 'Veil Agent',
-            },
-            body: JSON.stringify({
-              model: models[0],
-              models,
-              messages,
-              tools: functions,
-              tool_choice: 'auto',
-              max_tokens: 2_048,
-            }),
-            signal: AbortSignal.timeout(60_000),
+          const body = await completeWithFallback(options.apiKey, models, {
+            messages,
+            tools: functions,
+            tool_choice: 'auto',
+            max_tokens: 2_048,
           })
-
-          const body = (await res.json().catch(() => ({}))) as any
-          if (!res.ok || body?.error) {
-            const status = body?.error?.code ?? res.status
-            if (status === 429) {
-              throw new Error('The assistant is busy right now. Try again in a minute.')
-            }
-            throw new Error(`Model provider error (${status})`)
-          }
 
           const message = body?.choices?.[0]?.message ?? {}
           const rawCalls: any[] = Array.isArray(message.tool_calls) ? message.tool_calls : []
@@ -239,6 +219,62 @@ export function openRouterProvider(options: { apiKey: string; models?: string[] 
       }
     },
   }
+}
+
+/** Statuses that mean "this model, right now" rather than "this request". */
+const TRY_NEXT_MODEL = new Set([404, 408, 502, 503, 504])
+
+/**
+ * One chat completion, trying each model in turn.
+ *
+ * Every free model is served by a single provider, so any one of them can be
+ * overloaded (503) or withdrawn (404) at any moment. This used to send the list
+ * as OpenRouter's `models` fallback in one request; when that returned 503 the
+ * whole turn failed, and the error kept only the status code. Now each model is
+ * tried separately, the provider's own message is kept for the server log, and
+ * only failures that are about the model move on to the next one.
+ *
+ * A 429 is the account's rate limit, not the model's — the next model would hit
+ * the same limit — so it stops at once. 401/402 are configuration, likewise.
+ */
+async function completeWithFallback(
+  apiKey: string,
+  models: string[],
+  payload: Record<string, unknown>,
+): Promise<any> {
+  const failures: string[] = []
+  for (const model of models) {
+    const res = await fetch(OPENROUTER_URL, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+        // Attribution OpenRouter asks for; shows on their app rankings.
+        'HTTP-Referer': 'https://www.useveilapp.xyz',
+        'X-Title': 'Veil Agent',
+      },
+      body: JSON.stringify({ ...payload, model }),
+      // Per model, so trying several still fits inside the route's 60s limit.
+      signal: AbortSignal.timeout(20_000),
+    })
+
+    const body = (await res.json().catch(() => ({}))) as any
+    if (res.ok && !body?.error) return body
+
+    const status = Number(body?.error?.code ?? res.status)
+    const detail = String(body?.error?.message ?? res.statusText ?? '').slice(0, 300)
+    failures.push(`${model} → ${status} ${detail}`)
+
+    if (status === 429) {
+      console.error('[agent] OpenRouter rate limit:', detail)
+      throw new Error('The assistant is busy right now. Try again in a minute.')
+    }
+    if (!TRY_NEXT_MODEL.has(status)) break
+  }
+  // The server log gets every model's reason; the user gets a generic message
+  // from the route. "No endpoints found matching your data policy" here means the
+  // OpenRouter account's privacy settings exclude free models.
+  throw new Error(`Model provider error: ${failures.join(' | ')}`)
 }
 
 // ── Selection ────────────────────────────────────────────────────────────────
