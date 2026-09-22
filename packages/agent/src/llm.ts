@@ -187,7 +187,10 @@ export function openRouterProvider(options: { apiKey: string; models?: string[] 
             messages,
             tools: functions,
             tool_choice: 'auto',
-            max_tokens: 2_048,
+            max_tokens: 4_096,
+            // Keep reasoning models from spending the whole budget on thinking.
+            // OpenRouter maps this per model and ignores it where unsupported.
+            reasoning: { effort: 'low' },
           })
 
           const message = body?.choices?.[0]?.message ?? {}
@@ -271,7 +274,16 @@ async function completeWithFallback(
     })
 
     const body = (await res.json().catch(() => ({}))) as any
-    if (res.ok && !body?.error) return body
+    if (res.ok && !body?.error) {
+      const choice = body?.choices?.[0]
+      const hasTools = Array.isArray(choice?.message?.tool_calls) && choice.message.tool_calls.length > 0
+      const hasText = typeof choice?.message?.content === 'string' && choice.message.content.trim() !== ''
+      if (hasTools || hasText) return body
+      // Free reasoning models can spend the whole budget thinking and return an
+      // empty answer. That is this model failing, not the turn: try the next.
+      failures.push(`${model} → empty reply (finish_reason ${choice?.finish_reason ?? 'unknown'})`)
+      continue
+    }
 
     const status = Number(body?.error?.code ?? res.status)
     const detail = String(body?.error?.message ?? res.statusText ?? '').slice(0, 300)

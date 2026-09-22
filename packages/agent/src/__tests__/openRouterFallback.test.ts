@@ -61,4 +61,17 @@ describe('OpenRouter fallback', () => {
     await expect(session().next()).resolves.toEqual({ text: 'hi', toolCalls: [] })
     expect(calls).toEqual(['a:free', 'b:free'])
   })
+
+  it('treats an empty reply as that model failing, and asks the next', async () => {
+    const calls: string[] = []
+    globalThis.fetch = jest.fn(async (_url: unknown, init: any) => {
+      const model = JSON.parse(init.body).model
+      calls.push(model)
+      return model === 'a:free'
+        ? reply(200, { choices: [{ message: { content: '' }, finish_reason: 'length' }] })
+        : reply(200, { choices: [{ message: { content: 'XLM is 0.21 USDC' } }] })
+    }) as any
+    await expect(session().next()).resolves.toEqual({ text: 'XLM is 0.21 USDC', toolCalls: [] })
+    expect(calls).toEqual(['a:free', 'b:free'])
+  })
 })

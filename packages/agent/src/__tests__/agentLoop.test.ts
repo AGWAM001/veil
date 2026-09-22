@@ -110,4 +110,26 @@ describe('runAgent', () => {
       expect(llm.results[0][0].content).toMatch(/error/)
     }
   })
+
+  it("keeps a prepared swap when only the model's closing reply fails", async () => {
+    let calls = 0
+    const llm: LlmProvider = {
+      label: 'flaky',
+      start() {
+        return {
+          async next() {
+            calls += 1
+            if (calls === 1) {
+              return { text: '', toolCalls: [{ id: 's', name: 'open_swap', input: { from_asset: 'XLM', to_asset: 'USDC' } }] }
+            }
+            throw new Error('Model provider error: all busy')
+          },
+          addToolResults() {},
+        }
+      },
+    }
+    const result = await runAgent('swap xlm to usdc', wallet, [], undefined, undefined, llm)
+    expect(result.swapIntent).toEqual({ from: 'XLM', to: 'USDC' })
+    expect(result.response).toMatch(/Swap screen/)
+  })
 })

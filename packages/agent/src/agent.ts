@@ -446,7 +446,22 @@ export async function runAgent(
       results.push({ id: call.id, content })
     }
     session.addToolResults(results)
-    turn = await session.next()
+    try {
+      turn = await session.next()
+    } catch (err) {
+      // The work is done — a swap to open or a payment to approve — and only the
+      // model's closing sentence failed. Hand the user the result rather than an
+      // error that throws it away.
+      if (swapIntent || pendingTxXdr) {
+        return {
+          response: swapIntent ? 'Your swap is ready in the Swap screen.' : 'Your transaction is ready to review.',
+          pendingTxXdr,
+          pendingTxSummary,
+          swapIntent,
+        }
+      }
+      throw err
+    }
   }
 
   return { response: turn.text, pendingTxXdr, pendingTxSummary, swapIntent }
