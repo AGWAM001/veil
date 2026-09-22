@@ -221,6 +221,17 @@ export function openRouterProvider(options: { apiKey: string; models?: string[] 
   }
 }
 
+/**
+ * Whether an error came from the model's provider rather than from OpenRouter
+ * itself. OpenRouter passes a provider's failure through as "Provider returned
+ * error" with the provider named in metadata — a 429 there is that provider being
+ * saturated, which says nothing about the next model. Its own account limit
+ * carries neither.
+ */
+function isUpstreamFailure(body: any): boolean {
+  return !!body?.error?.metadata?.provider_name || /provider returned error/i.test(String(body?.error?.message ?? ''))
+}
+
 /** Statuses that mean "this model, right now" rather than "this request". */
 const TRY_NEXT_MODEL = new Set([404, 408, 502, 503, 504])
 
@@ -234,8 +245,9 @@ const TRY_NEXT_MODEL = new Set([404, 408, 502, 503, 504])
  * tried separately, the provider's own message is kept for the server log, and
  * only failures that are about the model move on to the next one.
  *
- * A 429 is the account's rate limit, not the model's — the next model would hit
- * the same limit — so it stops at once. 401/402 are configuration, likewise.
+ * A 429 from OpenRouter itself is the account's rate limit — the next model
+ * would hit the same limit — so it stops at once; a 429 passed through from a
+ * model's provider moves on. 401/402 are configuration and stop, too.
  */
 async function completeWithFallback(
   apiKey: string,
@@ -263,13 +275,17 @@ async function completeWithFallback(
 
     const status = Number(body?.error?.code ?? res.status)
     const detail = String(body?.error?.message ?? res.statusText ?? '').slice(0, 300)
-    failures.push(`${model} → ${status} ${detail}`)
+    const upstream = body?.error?.metadata?.provider_name
+    const raw = String(body?.error?.metadata?.raw ?? '').slice(0, 200)
+    failures.push(`${model} → ${status} ${detail}${upstream ? ` [${upstream}]` : ''}${raw ? ` ${raw}` : ''}`)
 
-    if (status === 429) {
-      console.error('[agent] OpenRouter rate limit:', detail)
+    if (status === 429 && !isUpstreamFailure(body)) {
+      // The account's own limit (e.g. free-models-per-day): every model shares it.
+      console.error('[agent] OpenRouter account rate limit:', detail)
       throw new Error('The assistant is busy right now. Try again in a minute.')
     }
-    if (!TRY_NEXT_MODEL.has(status)) break
+    // An upstream provider's 429 is about that one model; the next may be free.
+    if (status !== 429 && !TRY_NEXT_MODEL.has(status)) break
   }
   // The server log gets every model's reason; the user gets a generic message
   // from the route. "No endpoints found matching your data policy" here means the

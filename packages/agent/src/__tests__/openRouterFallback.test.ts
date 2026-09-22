@@ -48,4 +48,17 @@ describe('OpenRouter fallback', () => {
     ) as any
     await expect(session(['a:free', 'b:free']).next()).rejects.toThrow(/data policy.*\|.*data policy/)
   })
+
+  it("moves on when a model's own provider is rate-limited", async () => {
+    const calls: string[] = []
+    globalThis.fetch = jest.fn(async (_url: unknown, init: any) => {
+      const model = JSON.parse(init.body).model
+      calls.push(model)
+      return model === 'a:free'
+        ? reply(429, { error: { code: 429, message: 'Provider returned error', metadata: { provider_name: 'Chutes' } } })
+        : reply(200, { choices: [{ message: { content: 'hi' } }] })
+    }) as any
+    await expect(session().next()).resolves.toEqual({ text: 'hi', toolCalls: [] })
+    expect(calls).toEqual(['a:free', 'b:free'])
+  })
 })
