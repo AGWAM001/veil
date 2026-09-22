@@ -8,7 +8,11 @@ import { useInactivityLock } from '@/hooks/useInactivityLock'
 import { getNetwork } from '@/lib/network'
 import { requirePasskey } from '@/lib/passkeyAuth'
 import { walletLocal, walletSession } from '@/lib/walletStorage'
-import { resolveAgentUrl } from '@/lib/agentUrl'
+import {
+  proposalRefusal,
+  reviewProposedTransaction,
+  type ProposalReview,
+} from '@veil/agent-review'
 
 const network = getNetwork()
 
@@ -16,7 +20,26 @@ interface Message {
   role: 'user' | 'agent'
   content: string
   pendingTxXdr?: string
+  /** The agent's own description of the transaction — a claim, not evidence. */
   pendingTxSummary?: string
+  /** What the transaction actually does, decoded here. Null when it would not decode. */
+  review?: ProposalReview | null
+}
+
+/** Earlier turns for the agent, as plain text. The server keeps no history. */
+function historyForAgent(messages: Message[]) {
+  return messages.map((m) => ({
+    role: m.role === 'user' ? ('user' as const) : ('assistant' as const),
+    content: m.content,
+  }))
+}
+
+function decode(xdr: string): ProposalReview | null {
+  try {
+    return reviewProposedTransaction(xdr, network.networkPassphrase)
+  } catch {
+    return null
+  }
 }
 
 // Agent output relays third-party data (transfer memos, token metadata, price
@@ -190,7 +213,6 @@ export default function AgentPage() {
   const [pendingTxXdr, setPendingTxXdr] = useState<string | null>(null)
   const [pendingTxSummary, setPendingTxSummary] = useState<string | null>(null)
   const [approving, setApproving] = useState(false)
-  const wsRef = useRef<WebSocket | null>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
 
@@ -211,64 +233,18 @@ export default function AgentPage() {
     } catch { return '' }
   })()
 
-  const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
-
-  const connect = useCallback(() => {
-    const wsUrl = resolveAgentUrl(process.env.NEXT_PUBLIC_AGENT_WS_URL)
-    const ws = new WebSocket(wsUrl)
-    wsRef.current = ws
-
-    ws.onclose = () => {
-      reconnectTimer.current = setTimeout(connect, 2000)
-    }
-
-    ws.onmessage = (event) => {
-      const data = JSON.parse(event.data)
-
-      if (data.type === 'thinking') {
-        setIsThinking(true)
-        return
-      }
-
-      if (data.type === 'response') {
-        setIsThinking(false)
-        const msg: Message = { role: 'agent', content: data.message }
-        if (data.pendingTxXdr) {
-          msg.pendingTxXdr = data.pendingTxXdr
-          msg.pendingTxSummary = data.pendingTxSummary
-          setPendingTxXdr(data.pendingTxXdr)
-          setPendingTxSummary(data.pendingTxSummary ?? null)
-        }
-        setMessages((prev) => [...prev, msg])
-        return
-      }
-
-      if (data.type === 'error') {
-        setIsThinking(false)
-        setMessages((prev) => [
-          ...prev,
-          { role: 'agent', content: `Something went wrong: ${data.message}` },
-        ])
-      }
-    }
-  }, [])
-
-  useEffect(() => {
-    connect()
-    return () => {
-      if (reconnectTimer.current) clearTimeout(reconnectTimer.current)
-      wsRef.current?.close()
-    }
-  }, [connect])
-
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages, isThinking])
 
-  const sendMessage = useCallback(() => {
+  // One POST per message to the wallet's own /api/agent route. It used to be a
+  // WebSocket to a separate always-on server; the route is serverless, so the
+  // recent conversation travels with each request instead.
+  const sendMessage = useCallback(async () => {
     const text = input.trim()
-    if (!text || isThinking || !wsRef.current) return
+    if (!text || isThinking) return
 
+    const history = historyForAgent(messages)
     setMessages((prev) => [...prev, { role: 'user', content: text }])
     setInput('')
 
@@ -285,10 +261,40 @@ export default function AgentPage() {
       return
     }
 
-    wsRef.current.send(
-      JSON.stringify({ type: 'chat', walletAddress, feePayerAddress, message: text, profile: getUserProfile() }),
-    )
-  }, [input, isThinking, walletAddress, feePayerAddress])
+    setIsThinking(true)
+    try {
+      const res = await fetch('/api/agent', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          message: text,
+          walletAddress,
+          feePayerAddress,
+          profile: getUserProfile(),
+          history,
+        }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data?.error ?? `Request failed (${res.status})`)
+
+      const msg: Message = { role: 'agent', content: data.response ?? '' }
+      if (data.pendingTxXdr) {
+        msg.pendingTxXdr = data.pendingTxXdr
+        msg.pendingTxSummary = data.pendingTxSummary
+        msg.review = decode(data.pendingTxXdr)
+        setPendingTxXdr(data.pendingTxXdr)
+        setPendingTxSummary(data.pendingTxSummary ?? null)
+      }
+      setMessages((prev) => [...prev, msg])
+    } catch (err) {
+      setMessages((prev) => [
+        ...prev,
+        { role: 'agent', content: `Something went wrong: ${(err as Error).message}` },
+      ])
+    } finally {
+      setIsThinking(false)
+    }
+  }, [input, isThinking, messages, walletAddress, feePayerAddress])
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -300,6 +306,25 @@ export default function AgentPage() {
   const approveTransaction = async () => {
     if (!pendingTxXdr) return
     const xdrToSubmit = pendingTxXdr
+
+    // Decide from the decoded transaction, never from the agent's summary: the
+    // source must be this wallet's fee payer and every operation one we can
+    // show. The same rule the mobile app applies (proposalRefusal).
+    const refusal = proposalRefusal(decode(xdrToSubmit), feePayerAddress || null)
+    if (refusal) {
+      setMessages((prev) => [
+        ...prev.map((m) =>
+          m.pendingTxXdr === xdrToSubmit
+            ? { ...m, pendingTxXdr: undefined, pendingTxSummary: undefined, review: undefined }
+            : m,
+        ),
+        { role: 'agent', content: refusal },
+      ])
+      setPendingTxXdr(null)
+      setPendingTxSummary(null)
+      return
+    }
+
     setApproving(true)
     // Remove the approval card immediately so it can't be double-submitted
     setMessages((prev) =>
@@ -364,8 +389,6 @@ export default function AgentPage() {
   }
 
   const clearHistory = () => {
-    if (!walletAddress || !wsRef.current) return
-    wsRef.current.send(JSON.stringify({ type: 'clear_history', walletAddress }))
     const profile = getUserProfile()
     setMessages([{ role: 'agent', content: buildGreeting(profile) }])
   }
@@ -623,9 +646,21 @@ export default function AgentPage() {
                     </svg>
                     <span className="agent-tx-card__label">Transaction ready</span>
                   </div>
-                  {msg.pendingTxSummary && (
+                  {msg.review ? (
                     <div className="agent-tx-card__summary">
-                      {msg.pendingTxSummary}
+                      {msg.review.operations.map((op, j) => (
+                        <div key={j}>{op}</div>
+                      ))}
+                      <div style={{ opacity: 0.6, marginTop: 6 }}>Fee: {Number(msg.review.fee) / 1e7} XLM</div>
+                    </div>
+                  ) : (
+                    <div className="agent-tx-card__summary">
+                      This transaction could not be decoded and cannot be approved.
+                    </div>
+                  )}
+                  {msg.pendingTxSummary && (
+                    <div className="agent-tx-card__summary" style={{ opacity: 0.6 }}>
+                      Agent says: {msg.pendingTxSummary}
                     </div>
                   )}
                   <button

@@ -80,6 +80,13 @@ const nextConfig = {
       path.resolve(__dirname, 'node_modules'),
       ...config.resolve.modules,
     ]
+    // The agent package (packages/agent) is ESM TypeScript that imports its own
+    // modules as './network.js' — the extension TypeScript emits. When webpack
+    // compiles that source directly, those files only exist as .ts; try .ts first.
+    config.resolve.extensionAlias = {
+      ...(config.resolve.extensionAlias || {}),
+      '.js': ['.ts', '.tsx', '.js'],
+    }
     return config
   },
 }

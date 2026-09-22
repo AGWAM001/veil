@@ -4,18 +4,9 @@ import cors from 'cors'
 import { WebSocketServer, WebSocket } from 'ws'
 import { createServer, type IncomingMessage } from 'http'
 import { timingSafeEqual } from 'crypto'
-import { Keypair } from '@stellar/stellar-sdk'
 import { runAgent, type UserProfile } from './agent.js'
 import { providerFromEnv, type ChatTurn } from './llm.js'
 import { NETWORK } from './network.js'
-
-// ── Agent keypair (Ed25519 — for x402 payments only, never signs wallet txs) ──
-if (!process.env.AGENT_KEYPAIR_SECRET) {
-  console.error('[agent] AGENT_KEYPAIR_SECRET is required')
-  process.exit(1)
-}
-const agentKeypair = Keypair.fromSecret(process.env.AGENT_KEYPAIR_SECRET)
-console.log(`[agent] Agent keypair: ${agentKeypair.publicKey()}`)
 
 // ── Model provider ───────────────────────────────────────────────────────────
 // Claude, or free OpenRouter models when OPENROUTER_API_KEY is set (llm.ts).
@@ -101,7 +92,7 @@ app.use(cors({ origin: ALLOWED_ORIGINS }))
 app.use(express.json())
 
 app.get('/health', (_req, res) => {
-  res.json({ ok: true, agentAddress: agentKeypair.publicKey() })
+  res.json({ ok: true, network: NETWORK, model: llm.label })
 })
 
 const httpServer = createServer(app)
@@ -161,7 +152,6 @@ wss.on('connection', (ws: WebSocket) => {
         const { response, pendingTxXdr, pendingTxSummary } = await runAgent(
           userMessage,
           walletAddress,
-          agentKeypair,
           history,
           feePayerAddress,
           profile,

@@ -1,4 +1,4 @@
-import { Asset, Networks } from '@stellar/stellar-sdk'
+import { Networks } from '@stellar/stellar-sdk'
 
 /**
  * Which Stellar network this agent serves, and every endpoint that follows
@@ -15,8 +15,14 @@ import { Asset, Networks } from '@stellar/stellar-sdk'
  */
 export type StellarNetwork = 'mainnet' | 'testnet'
 
-export const NETWORK: StellarNetwork =
-  process.env.STELLAR_NETWORK?.trim().toLowerCase() === 'testnet' ? 'testnet' : 'mainnet'
+// NEXT_PUBLIC_NETWORK is the wallet app's setting: when the agent runs inside
+// the wallet's own API route, it follows the wallet's network unless told
+// otherwise, so a testnet preview deploy never answers with mainnet balances.
+const configuredNetwork = (process.env.STELLAR_NETWORK ?? process.env.NEXT_PUBLIC_NETWORK)
+  ?.trim()
+  .toLowerCase()
+
+export const NETWORK: StellarNetwork = configuredNetwork === 'testnet' ? 'testnet' : 'mainnet'
 
 const DEFAULTS = {
   mainnet: {
@@ -25,14 +31,12 @@ const DEFAULTS = {
     // SDF runs no public mainnet RPC. This is Veil's own proxy, which fails over
     // across several providers — the same one the web and mobile apps use.
     sorobanRpcUrl: 'https://app.useveilapp.xyz/api/rpc/mainnet',
-    x402Network: 'stellar:pubnet',
     usdcIssuer: 'GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN',
   },
   testnet: {
     passphrase: Networks.TESTNET,
     horizonUrl: 'https://horizon-testnet.stellar.org',
     sorobanRpcUrl: 'https://soroban-testnet.stellar.org',
-    x402Network: 'stellar:testnet',
     usdcIssuer: 'GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5',
   },
 } as const
@@ -42,13 +46,6 @@ const d = DEFAULTS[NETWORK]
 export const NETWORK_PASSPHRASE: string = d.passphrase
 export const HORIZON_URL = process.env.HORIZON_URL?.trim() || d.horizonUrl
 export const SOROBAN_RPC_URL = process.env.SOROBAN_RPC_URL?.trim() || d.sorobanRpcUrl
-export const X402_NETWORK = d.x402Network
 
-/**
- * USDC's Stellar Asset Contract on this network, derived rather than
- * hard-coded: the contract id is a function of the asset and the passphrase.
- * A function, not a constant, so importing this module has no side effects.
- */
-export function usdcContractId(): string {
-  return new Asset('USDC', d.usdcIssuer).contractId(NETWORK_PASSPHRASE)
-}
+/** USDC's issuer on this network, so a bare "USDC" names one specific asset. */
+export const USDC_ISSUER: string = d.usdcIssuer

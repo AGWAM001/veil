@@ -1,5 +1,4 @@
 import { describe, it, expect } from '@jest/globals'
-import { Keypair } from '@stellar/stellar-sdk'
 import { runAgent } from '../agent.js'
 import type { LlmProvider, LlmTurn } from '../llm.js'
 
@@ -30,13 +29,12 @@ function scripted(turns: LlmTurn[]): LlmProvider & { results: { id: string; cont
   }
 }
 
-const keypair = Keypair.random()
 const wallet = 'CWALLET'
 
 describe('runAgent', () => {
   it('returns the model text when no tools are called', async () => {
     const llm = scripted([{ text: 'Hello!', toolCalls: [] }])
-    const result = await runAgent('hi', wallet, keypair, [], undefined, undefined, llm)
+    const result = await runAgent('hi', wallet, [], undefined, undefined, llm)
     expect(result.response).toBe('Hello!')
     expect(result.pendingTxXdr).toBeUndefined()
   })
@@ -56,7 +54,7 @@ describe('runAgent', () => {
       { text: 'Approve the payment in your wallet.', toolCalls: [] },
     ])
 
-    const result = await runAgent('send 1 xlm', wallet, keypair, [], undefined, undefined, llm)
+    const result = await runAgent('send 1 xlm', wallet, [], undefined, undefined, llm)
 
     expect(result.pendingTxXdr).toBe('AAAA')
     expect(result.pendingTxSummary).toBe('Send 1 XLM')
@@ -69,7 +67,7 @@ describe('runAgent', () => {
       { text: '', toolCalls: [{ id: 'c', name: 'drain_wallet', input: {} }] },
       { text: 'Sorry, I cannot do that.', toolCalls: [] },
     ])
-    const result = await runAgent('x', wallet, keypair, [], undefined, undefined, llm)
+    const result = await runAgent('x', wallet, [], undefined, undefined, llm)
     expect(result.response).toBe('Sorry, I cannot do that.')
     expect(llm.results[0][0].content).toMatch(/Unknown tool/)
   })
@@ -80,7 +78,7 @@ describe('runAgent', () => {
       toolCalls: [{ id: 'loop', name: 'request_user_approval', input: { transaction_xdr: 'X', summary: 's' } }],
     }
     const llm = scripted([forever])
-    const result = await runAgent('loop', wallet, keypair, [], undefined, undefined, llm)
+    const result = await runAgent('loop', wallet, [], undefined, undefined, llm)
 
     expect(result.response).toMatch(/couldn't finish/)
     // Bounded: eight rounds of tool results, then it gives up.

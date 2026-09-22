@@ -6,8 +6,7 @@ import {
   type ToolSpec,
 } from './llm.js'
 import { HORIZON_URL, NETWORK, SOROBAN_RPC_URL } from './network.js'
-import { Keypair } from '@stellar/stellar-sdk'
-import { createX402Fetch } from './x402Client.js'
+import { getPrice } from './price.js'
 import { buildSwap, buildPayment, getBalances } from './txBuilder.js'
 
 // ── Agent configuration ──────────────────────────────────────────────────────
@@ -21,12 +20,8 @@ export interface AgentConfig {
   models?: string[]
   /** A ready-made provider; overrides the keys above. */
   provider?: LlmProvider
-  /** Stellar secret key for x402 micropayments. */
-  agentKeypairSecret: string
-  /** Price oracle URL (x402-enabled). */
-  oracleUrl: string
-  /** Transfer indexer URL (x402-enabled). */
-  wraithUrl: string
+  /** Optional transfer indexer (Wraith) for Soroban token history. Horizon covers classic payments. */
+  wraithUrl?: string
   /** Horizon URL. Default: follows STELLAR_NETWORK (mainnet unless set to testnet). */
   horizonUrl?: string
   /** Soroban RPC URL. Default: follows STELLAR_NETWORK. */
@@ -43,8 +38,6 @@ export interface AgentConfig {
 
 interface ResolvedConfig {
   llm: LlmProvider
-  agentKeypair: Keypair
-  oracleUrl: string
   wraithUrl: string
   horizonUrl: string
   sorobanRpcUrl: string
@@ -59,9 +52,7 @@ function resolveConfig(config: AgentConfig): ResolvedConfig {
       (config.openRouterApiKey
         ? openRouterProvider({ apiKey: config.openRouterApiKey, models: config.models })
         : anthropicProvider({ apiKey: config.anthropicApiKey, model: config.model })),
-    agentKeypair: Keypair.fromSecret(config.agentKeypairSecret),
-    oracleUrl: config.oracleUrl,
-    wraithUrl: config.wraithUrl,
+    wraithUrl: config.wraithUrl ?? '',
     horizonUrl: config.horizonUrl ?? HORIZON_URL,
     sorobanRpcUrl: config.sorobanRpcUrl ?? SOROBAN_RPC_URL,
     network: config.network ?? NETWORK,
@@ -78,14 +69,13 @@ const tools: ToolSpec[] = [
   {
     name: 'get_price',
     description:
-      'Get the current best price and swap route for an asset pair on Stellar. ' +
-      'Returns VWAP, SDEX price, AMM price, 24h volume, and best execution route. ' +
-      'Costs a small USDC fee via x402 micropayment (auto-paid).',
+      'Get the current price of one asset in terms of another on the Stellar DEX: ' +
+      'how many units of asset_b one unit of asset_a sells for right now, and how many hops the best route takes.',
     input_schema: {
       type: 'object' as const,
       properties: {
-        asset_a: { type: 'string', description: 'First asset: "XLM" or "CODE:ISSUER"' },
-        asset_b: { type: 'string', description: 'Second asset: "XLM" or "CODE:ISSUER"' },
+        asset_a: { type: 'string', description: 'Asset to price: "XLM", "USDC" or "CODE:ISSUER"' },
+        asset_b: { type: 'string', description: 'Asset to price it in: "XLM", "USDC" or "CODE:ISSUER"' },
       },
       required: ['asset_a', 'asset_b'],
     },
@@ -244,6 +234,24 @@ RULES:
 8. Always use the fee-payer address (not the contract address) as wallet_address when calling build_swap or build_payment.`
 }
 
+/**
+ * Soroban token transfers from Wraith, when it is configured and free to call.
+ *
+ * Wraith used to be called through an x402 client that paid per request from a
+ * funded agent key. The agent no longer holds a key: a paywalled or failing
+ * Wraith now just means no Soroban transfers in the answer, and Horizon still
+ * supplies classic payments.
+ */
+async function fetchWraith(baseUrl: string, path: string): Promise<unknown[]> {
+  if (!baseUrl) return []
+  const res = await fetch(`${baseUrl.replace(/\/+$/, '')}${path}`, {
+    signal: AbortSignal.timeout(15_000),
+  })
+  if (!res.ok) return []
+  const body = await res.json()
+  return Array.isArray(body) ? body : []
+}
+
 // ── Core agent loop ──────────────────────────────────────────────────────────
 
 export interface AgentResult {
@@ -258,20 +266,17 @@ export interface AgentResult {
 export async function runAgent(
   userMessage: string,
   walletAddress: string,
-  agentKeypair: Keypair,
   conversationHistory: ChatTurn[],
   feePayerAddress: string | undefined,
   profile: UserProfile | undefined,
   /** The model provider (see llm.ts). Reuse one per process. */
   llm: LlmProvider,
   /** Service URLs — if not provided, falls back to process.env. */
-  urls?: { oracleUrl?: string; wraithUrl?: string; horizonUrl?: string },
+  urls?: { wraithUrl?: string; horizonUrl?: string },
 ): Promise<AgentResult> {
-  const { fetchWithPayment } = createX402Fetch(agentKeypair)
   let pendingTxXdr: string | undefined
   let pendingTxSummary: string | undefined
 
-  const oracleUrl = urls?.oracleUrl ?? process.env.ORACLE_URL ?? ''
   const wraithUrl = urls?.wraithUrl ?? process.env.WRAITH_URL ?? ''
   const horizonUrl = urls?.horizonUrl ?? HORIZON_URL
 
@@ -285,9 +290,7 @@ export async function runAgent(
 
     try {
       const [wraithResult, horizonResult] = await Promise.allSettled([
-        fetchWithPayment(
-          `${wraithUrl}/transfers/address/${targetAddress}?direction=both&limit=${count}`,
-        ),
+        fetchWraith(wraithUrl, `/transfers/address/${targetAddress}?direction=both&limit=${count}`),
         fetch(`${horizonUrl}/accounts/${targetAddress}/payments?limit=${count}&order=desc`)
           .then((r) => r.json()),
       ]);
@@ -331,9 +334,7 @@ export async function runAgent(
   async function executeTool(name: string, input: Record<string, unknown>): Promise<string> {
     switch (name) {
       case 'get_price': {
-        const url = `${oracleUrl}/price/${input.asset_a}/${input.asset_b}`
-        const data = await fetchWithPayment(url)
-        return JSON.stringify(data)
+        return JSON.stringify(await getPrice(String(input.asset_a), String(input.asset_b)))
       }
 
       case 'get_transfer_history': {
@@ -341,8 +342,9 @@ export async function runAgent(
         const horizonAddr = feePayerAddress ?? (input.address as string)
 
         const [wraithResult, horizonResult] = await Promise.allSettled([
-          fetchWithPayment(
-            `${wraithUrl}/transfers/address/${input.address}?direction=${input.direction}&limit=${limit}`,
+          fetchWraith(
+            wraithUrl,
+            `/transfers/address/${input.address}?direction=${input.direction}&limit=${limit}`,
           ),
           fetch(`${horizonUrl}/accounts/${horizonAddr}/payments?limit=${limit}&order=desc`)
             .then(r => r.json()),
@@ -444,8 +446,6 @@ export interface VeilAgent {
   chat: (message: string, options: ChatOptions) => Promise<AgentResult>
   /** Clear conversation history for a wallet. */
   clearHistory: (walletAddress: string) => void
-  /** The agent's Stellar public key (used for x402 payments). */
-  publicKey: string
 }
 
 /**
@@ -457,9 +457,7 @@ export interface VeilAgent {
  *
  * const agent = createVeilAgent({
  *   anthropicApiKey: 'sk-ant-...',
- *   agentKeypairSecret: 'S...',
- *   oracleUrl: 'https://oracle.example.com',
- *   wraithUrl: 'https://wraith.example.com',
+ *   openRouterApiKey: 'sk-or-...', // or anthropicApiKey for Claude
  * })
  *
  * const result = await agent.chat('What is my balance?', {
@@ -480,7 +478,6 @@ export function createVeilAgent(config: AgentConfig): VeilAgent {
   const conversations = new Map<string, ChatTurn[]>()
 
   return {
-    publicKey: resolved.agentKeypair.publicKey(),
 
     async chat(message: string, options: ChatOptions): Promise<AgentResult> {
       const { walletAddress, feePayerAddress, profile } = options
@@ -489,13 +486,11 @@ export function createVeilAgent(config: AgentConfig): VeilAgent {
       const result = await runAgent(
         message,
         walletAddress,
-        resolved.agentKeypair,
         history,
         feePayerAddress,
         profile,
         resolved.llm,
         {
-          oracleUrl: resolved.oracleUrl,
           wraithUrl: resolved.wraithUrl,
           horizonUrl: resolved.horizonUrl,
         },

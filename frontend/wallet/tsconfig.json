@@ -29,6 +29,15 @@
       "@veil/sdk": [
         "../../sdk/src/index"
       ],
+      "@veil/agent-core": [
+        "../../packages/agent/src/handler"
+      ],
+      "@veil/agent-llm": [
+        "../../packages/agent/src/llm"
+      ],
+      "@veil/agent-review": [
+        "../mobile/lib/agentMessages"
+      ],
       "@veil/events": [
         "../../sdk/src/events"
       ],
