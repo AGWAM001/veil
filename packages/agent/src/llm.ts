@@ -258,6 +258,27 @@ async function completeWithFallback(
   payload: Record<string, unknown>,
 ): Promise<any> {
   const failures: string[] = []
+  // Free models are shared by everyone on OpenRouter, so at busy moments every
+  // one of them can be rate-limited at once — seen in production with all five
+  // failing together. Those limits clear in seconds, so the whole list is tried
+  // again after a short wait before the turn is given up on.
+  for (let pass = 0; pass < 2; pass++) {
+    if (pass > 0) {
+      if (!failures.some((f) => / 429 | 503 /.test(f))) break
+      await new Promise((r) => setTimeout(r, 2_000))
+    }
+    const result = await tryModels(apiKey, models, payload, failures)
+    if (result) return result
+  }
+  throw new Error(`Model provider error: ${failures.join(' | ')}`)
+}
+
+async function tryModels(
+  apiKey: string,
+  models: string[],
+  payload: Record<string, unknown>,
+  failures: string[],
+): Promise<any | null> {
   for (const model of models) {
     const res = await fetch(OPENROUTER_URL, {
       method: 'POST',
@@ -299,10 +320,9 @@ async function completeWithFallback(
     // An upstream provider's 429 is about that one model; the next may be free.
     if (status !== 429 && !TRY_NEXT_MODEL.has(status)) break
   }
-  // The server log gets every model's reason; the user gets a generic message
-  // from the route. "No endpoints found matching your data policy" here means the
-  // OpenRouter account's privacy settings exclude free models.
-  throw new Error(`Model provider error: ${failures.join(' | ')}`)
+  // Nothing answered this pass. The caller decides whether to try again; the
+  // failures it collected go to the server log, never to the user.
+  return null
 }
 
 // ── Selection ────────────────────────────────────────────────────────────────

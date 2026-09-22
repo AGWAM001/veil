@@ -74,4 +74,19 @@ describe('OpenRouter fallback', () => {
     await expect(session().next()).resolves.toEqual({ text: 'XLM is 0.21 USDC', toolCalls: [] })
     expect(calls).toEqual(['a:free', 'b:free'])
   })
+
+  it('tries the whole list again when every model was rate-limited', async () => {
+    let attempts = 0
+    globalThis.fetch = jest.fn(async () => {
+      attempts += 1
+      return attempts <= 3
+        ? reply(429, { error: { code: 429, message: 'Provider returned error', metadata: { provider_name: 'X' } } })
+        : reply(200, { choices: [{ message: { content: 'second pass' } }] })
+    }) as any
+
+    const result = await session().next()
+    expect(result.text).toBe('second pass')
+    // Three models in the first pass, then the first model of the second.
+    expect(attempts).toBe(4)
+  }, 15_000)
 })
