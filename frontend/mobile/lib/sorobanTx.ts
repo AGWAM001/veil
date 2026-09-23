@@ -39,6 +39,13 @@ export async function signAndSubmitSorobanXdr(params: {
   });
   // Copy the raw XDR operations — this preserves the invocation and its auth
   // entries (source-account credentials stay valid: same source account).
+  // v17: TransactionEnvelope is a discriminated union — narrow to v1
+  const envelope = upstream.toEnvelope();
+  const v1Env = (envelope as any).v1 ? (envelope as any).v1() : undefined;
+  if (!v1Env) {
+    throw new Error('Unsupported transaction envelope type.');
+  }
+  for (const op of v1Env.tx().operations()) {
   // v17: TransactionEnvelope is a discriminated union, so the v1 arm is a
   // property reached after narrowing rather than an accessor. A fee-bump
   // envelope was already rejected above, and a v0 envelope cannot carry a

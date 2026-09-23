@@ -321,6 +321,10 @@ describe('attachRecoverySignatures', () => {
 
     const unsigned = tx.toXDR();
     tx.sign(keypair);
+    // v17: Signature.toString() returns hex (no prefix); convert hex→bytes→base64
+    const hexSig = tx.signatures[0]!.signature.toString();
+    const sigBytes = Uint8Array.from(hexSig.match(/.{2}/g)!.map((b) => parseInt(b, 16)));
+    const signature = Buffer.from(sigBytes).toString('base64');
     // v17: `signature` is a property rather than an accessor, and the bytes are
     // wrapped in a branded `Signature` whose payload sits on `.value`.
     const raw = (tx.signatures[0]!.signature as unknown as { value: Uint8Array }).value;

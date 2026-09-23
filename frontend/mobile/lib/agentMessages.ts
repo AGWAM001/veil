@@ -1,3 +1,5 @@
+import { Asset, TransactionBuilder, type Transaction, type OperationRecord } from '@stellar/stellar-sdk';
+
 import { Asset, TransactionBuilder, type Transaction } from '@stellar/stellar-sdk';
 
 /**
@@ -195,6 +197,7 @@ function describeMemo(memo: Transaction['memo'] | undefined): string | null {
 }
 
 /** One line per operation, in the terms the user cares about. */
+function describeOperation(operation: OperationRecord): { text: string; known: boolean } {
 function describeOperation(operation: TxOperation): { text: string; known: boolean } {
   switch (operation.type) {
     case 'payment':
@@ -222,7 +225,7 @@ function describeOperation(operation: TxOperation): { text: string; known: boole
     case 'invokeHostFunction':
       return { text: 'Call a smart contract', known: false };
     default:
-      return { text: `Unrecognised operation: ${operation.type}`, known: false };
+      return { text: `Unrecognised operation: ${(operation as { type: string }).type}`, known: false };
   }
 }
 
@@ -236,6 +239,26 @@ function describeOperation(operation: TxOperation): { text: string; known: boole
  *
  * @throws when the XDR cannot be parsed for the active network.
  */
+/**
+ * Decode a Stellar memo for display.
+ *
+ * v17 returns text memos as bytes (Uint8Array), so String(memo.value) would
+ * render "rent" as "114,101,110,116". Decode by the memo type instead.
+ */
+function decodeMemo(memo: Transaction['memo']): string | null {
+  if (!memo?.value) return null;
+  const v = memo.value;
+  if (v instanceof Uint8Array || (typeof Buffer !== 'undefined' && Buffer.isBuffer(v))) {
+    // text memos: decode bytes to string; hash memos: show hex
+    try {
+      return new TextDecoder().decode(v as Uint8Array);
+    } catch {
+      return Array.from(v as Uint8Array).map((b) => b.toString(16).padStart(2, '0')).join('');
+    }
+  }
+  return String(v);
+}
+
 export function reviewProposedTransaction(
   xdr: string,
   networkPassphrase: string
@@ -252,6 +275,7 @@ export function reviewProposedTransaction(
   return {
     source: tx.source,
     fee: tx.fee,
+    memo: decodeMemo(tx.memo),
     memo: describeMemo(tx.memo),
     operations: described.map((operation) => operation.text),
     hasUnknownOperation: described.some((operation) => !operation.known),

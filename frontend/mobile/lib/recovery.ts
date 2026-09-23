@@ -448,6 +448,10 @@ export async function fetchWalletSigners(
   // get_signers returns Map<u32, BytesN<65>>; read the XDR directly rather than
   // through scValToNative, whose output shape varies by SDK version.
   try {
+    // v17: ScVal is a discriminated union — the map() accessor lives on ScValMap.
+    // We know get_signers returns a map, so narrow through `any` to keep the
+    // runtime check in the catch clause.
+    return (retval as any).map()?.map((entry: any) => new Uint8Array(entry.val().bytes())) ?? [];
     // v17: the XDR unions are discriminated, so the map arm is reached by
     // narrowing on `.type` rather than calling an accessor that throws for the
     // wrong arm. A non-map return is not a Veil wallet, which the catch below

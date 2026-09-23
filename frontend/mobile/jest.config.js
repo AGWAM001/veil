@@ -23,6 +23,7 @@ module.exports = {
   ...expoPreset,
   setupFiles: [...expoPreset.setupFiles, '<rootDir>/jest.setup.js'],
   transformIgnorePatterns: expoPreset.transformIgnorePatterns.map((pattern) =>
+    pattern.startsWith('/node_modules/(?!(') ? pattern.replace('(?!(', '(?!(@noble|uint8array-extras|@exodus|') : pattern
     pattern.startsWith('/node_modules/(?!(')
       ? pattern.replace('(?!(', '(?!(@noble|uint8array-extras|smol-toml|@exodus|')
       : pattern

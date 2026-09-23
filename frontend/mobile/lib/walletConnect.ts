@@ -308,6 +308,12 @@ export async function signXdrPayload(xdrString: string): Promise<string> {
   if (authEntries) {
     const networkIdBytes = await sha256(new TextEncoder().encode(network.networkPassphrase));
 
+    for (let i = 0; i < authEntries.length; i++) {
+      const parsed = authEntries[i];
+      const credentials = parsed.credentials;
+      if (
+        credentials.type !== 'sorobanCredentialsAddress'
+      ) {
     // v17 models the XDR unions as discriminated types: `.credentials` is a
     // property rather than an accessor, the arm is chosen by `.type`, and the
     // payload objects are frozen — so a signed entry replaces its slot instead
@@ -326,6 +332,7 @@ export async function signXdrPayload(xdrString: string): Promise<string> {
 
       const preimage = xdr.HashIdPreimage.envelopeTypeSorobanAuthorization(
         new xdr.HashIdPreimageSorobanAuthorization({
+          networkId: Buffer.from(networkIdBytes),
           networkId: networkIdBytes,
           nonce: addressCredentials.nonce,
           invocation: parsed.rootInvocation,
@@ -372,7 +379,7 @@ export async function signXdrPayload(xdrString: string): Promise<string> {
     .addOperation(
       Operation.invokeHostFunction({
         func: invokeOp.func,
-        auth: authEntries ?? [],
+        auth: authEntries?.map((e) => e) ?? [],
         source: invokeOp.source,
       })
     )
