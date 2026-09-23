@@ -1,5 +1,15 @@
 import { Asset, TransactionBuilder, type Transaction, type OperationRecord } from '@stellar/stellar-sdk';
 
+import { Asset, TransactionBuilder, type Transaction } from '@stellar/stellar-sdk';
+
+/**
+ * One operation as a built `Transaction` carries it.
+ *
+ * Derived from `Transaction` rather than imported: `Operation` is the builder
+ * namespace, and only doubled as the union type up to v14. Reading the type off
+ * the thing it came from stays correct through a rename.
+ */
+type TxOperation = Transaction['operations'][number];
 
 /**
  * The agent conversation's data model: what the assistant can say, and what a
@@ -160,8 +170,35 @@ function describeAsset(asset: Asset): string {
   return asset.isNative() ? 'XLM' : asset.getCode();
 }
 
+/**
+ * A transaction memo as text the user can read.
+ *
+ * `String(memo.value)` was enough while the SDK handed text memos back as a
+ * string. Since v17 they arrive as bytes, and stringifying those yields
+ * "114,101,110,116" rather than "rent" — a memo the user is being asked to
+ * approve, rendered as a list of numbers.
+ *
+ * Hash and return-hash memos are bytes by definition and are shown as hex.
+ */
+function describeMemo(memo: Transaction['memo'] | undefined): string | null {
+  const value = memo?.value;
+  if (value === undefined || value === null || value === '') return null;
+
+  if (typeof value === 'string') return value;
+
+  if (value instanceof Uint8Array) {
+    // MEMO_TEXT is UTF-8; MEMO_HASH / MEMO_RETURN are opaque 32-byte digests.
+    if (memo?.type === 'text') return new TextDecoder().decode(value);
+    return Array.from(value, (b) => b.toString(16).padStart(2, '0')).join('');
+  }
+
+  // MEMO_ID arrives as a bigint or number.
+  return String(value);
+}
+
 /** One line per operation, in the terms the user cares about. */
 function describeOperation(operation: OperationRecord): { text: string; known: boolean } {
+function describeOperation(operation: TxOperation): { text: string; known: boolean } {
   switch (operation.type) {
     case 'payment':
       return {
@@ -239,6 +276,7 @@ export function reviewProposedTransaction(
     source: tx.source,
     fee: tx.fee,
     memo: decodeMemo(tx.memo),
+    memo: describeMemo(tx.memo),
     operations: described.map((operation) => operation.text),
     hasUnknownOperation: described.some((operation) => !operation.known),
   };

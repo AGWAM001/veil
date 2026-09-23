@@ -452,6 +452,19 @@ export async function fetchWalletSigners(
     // We know get_signers returns a map, so narrow through `any` to keep the
     // runtime check in the catch clause.
     return (retval as any).map()?.map((entry: any) => new Uint8Array(entry.val().bytes())) ?? [];
+    // v17: the XDR unions are discriminated, so the map arm is reached by
+    // narrowing on `.type` rather than calling an accessor that throws for the
+    // wrong arm. A non-map return is not a Veil wallet, which the catch below
+    // already reports.
+    if (retval.type !== 'scvMap') throw new Error('get_signers did not return a map');
+    return (retval.map ?? []).map((entry) => {
+      const val = entry.val;
+      if (val.type !== 'scvBytes') throw new Error('signer entry is not bytes');
+      // v17 brands its byte types (`BytesValue<'ScBytes'>`), so they no longer
+      // describe themselves as iterable even though each is a byte view at
+      // runtime. Copy through that shape so callers own their array.
+      return Uint8Array.from(val.bytes as unknown as Uint8Array);
+    });
   } catch {
     throw new Error('That contract does not look like a Veil wallet: it has no signer map.');
   }
