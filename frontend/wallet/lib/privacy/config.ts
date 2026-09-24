@@ -152,6 +152,13 @@ export type SppNetworkConfig = {
   pools: readonly SppPool[]
 }
 
+const NETHERMIND_TESTNET_BOOTNODE = 'https://bootnode.dev-nethermind.xyz'
+
+/** Select Veil's archive when configured, otherwise use Nethermind's archive. */
+export function getSppBootnodeUrl(configuredUrl?: string): string {
+  return configuredUrl?.trim() || NETHERMIND_TESTNET_BOOTNODE
+}
+
 /**
  * SPP contract addresses, copied from SPP's
  * `deployments/testnet/deployments.json` at upstream commit
@@ -173,7 +180,7 @@ export const SPP_NETWORKS: Partial<Record<VeilNetworkName, SppNetworkConfig>> = 
       traceable: 'CDBA2ZZSVV5VVE4OL2ORCSG2XDN4CD2UPTZIEO7BI32RKRTPFCUF2FMV',
     },
     publicKeyRegistry: 'CC6EJCBEULJGHNQQROKLXD6M6IKFW6LN7IHTVUEFQQWZDDLCMNPWXIH4',
-    bootnodeUrl: 'https://bootnode.dev-nethermind.xyz',
+    bootnodeUrl: getSppBootnodeUrl(process.env.NEXT_PUBLIC_SPP_BOOTNODE_URL),
     pools: [
       {
         // XLM pool with a block-list policy.
