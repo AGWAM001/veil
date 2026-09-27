@@ -115,7 +115,11 @@ jobs:
             # with "Syntax error: end of file unexpected (expecting done)".
             for i in $(seq 1 30); do if adb shell dumpsys connectivity | grep -q "VALIDATED"; then echo "Emulator network validated"; break; fi; echo "Waiting for emulator network ($i/30)"; sleep 5; done
 
-            maestro test .maestro --format junit --output maestro-report.xml
+            # -d (debug-output) makes Maestro save the view hierarchy and a
+            # screenshot for every step into maestro-debug/, which the artifact
+            # below uploads. On a failed assertion this is the only way to see
+            # whether the input actually reached the screen.
+            maestro test .maestro --format junit --output maestro-report.xml -d maestro-debug
 
       - name: Upload Maestro report
         if: always()
@@ -124,5 +128,6 @@ jobs:
           name: maestro-report
           path: |
             frontend/mobile/maestro-report.xml
+            frontend/mobile/maestro-debug/**
             ~/.maestro/tests/**
           if-no-files-found: ignore
