@@ -18,6 +18,8 @@
 
 import { forwardWithFailover, mainnetUpstreams } from '@/lib/rpcFailover'
 
+import { ALLOWED_METHODS, disallowedMethod } from '@/lib/rpcAllowlist'
+
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
@@ -39,45 +41,6 @@ export const dynamic = 'force-dynamic'
  * plain HTTPS to `bootnodeUrl`, never this proxy. All six are already in the
  * allow-list below, so no extension was needed.
  */
-export const ALLOWED_METHODS = new Set([
-  'getHealth',
-  'getNetwork',
-  'getVersionInfo',
-  'getLatestLedger',
-  'getFeeStats',
-  'getLedgerEntries',
-  'getEvents',
-  'getTransaction',
-  'getTransactions',
-  'simulateTransaction',
-  'sendTransaction',
-])
-
-/**
- * Every JSON-RPC method SPP calls over the wallet RPC (init, sync, bootnode
- * probe fallback, transact). Kept as a named list so tests pin the proxy's
- * SPP coverage; each entry is already in ALLOWED_METHODS.
- */
-export const SPP_REQUIRED_METHODS = [
-  'getLatestLedger',
-  'getEvents',
-  'getLedgerEntries',
-  'simulateTransaction',
-  'sendTransaction',
-  'getTransaction',
-] as const
-
-type JsonRpcCall = { method?: unknown; id?: unknown }
-
-export function disallowedMethod(payload: unknown): string | null {
-  const calls: JsonRpcCall[] = Array.isArray(payload) ? payload : [payload as JsonRpcCall]
-  for (const call of calls) {
-    const method = typeof call?.method === 'string' ? call.method : ''
-    if (!ALLOWED_METHODS.has(method)) return method || '(missing)'
-  }
-  return null
-}
-
 export async function POST(request: Request): Promise<Response> {
   const upstreams = mainnetUpstreams()
 

@@ -6,12 +6,8 @@ import {
   isProviderRefusal,
   mainnetUpstreams,
 } from '../rpcFailover'
-import {
-  ALLOWED_METHODS,
-  GET,
-  SPP_REQUIRED_METHODS,
-  disallowedMethod,
-} from '@/app/api/rpc/mainnet/route'
+import { ALLOWED_METHODS, SPP_REQUIRED_METHODS, disallowedMethod } from '@/lib/rpcAllowlist'
+import { GET } from '@/app/api/rpc/mainnet/route'
 
 function reply(status: number, body: unknown) {
   return new Response(typeof body === 'string' ? body : JSON.stringify(body), {
