@@ -24,7 +24,7 @@ Both rest on protocol upgrades already live on mainnet: X-Ray (Protocol 25, BN25
 
 ## 2. Measured costs
 
-Read from the chain on 2026-09-14, not from documentation.
+Read from the chain on 2026-09-14, not from documentation. Opted-in wallet diagnostics can also report only the fee charged and CPU instructions for confirmed private transactions; transaction hashes, addresses, and amounts are not attached to those samples.
 
 | Item | Value | How measured |
 |---|---|---|
