@@ -233,6 +233,7 @@ export default function SettingsScreen() {
     // rather than everyday: the Mainnet switch above is how you actually change
     // network, and this is where you look when it does not behave.
     { key: 'network-details', title: 'Network details', subtitle: 'Endpoints and contract configuration', onPress: () => router.push('/settings/network') },
+    { key: 'prover-spike', title: 'Prover spike', subtitle: 'Compare the SPP WebView and native simulation harnesses', onPress: () => router.push('/prover-spike') },
     {
       key: 'fund',
       title: 'Fund test XLM',
