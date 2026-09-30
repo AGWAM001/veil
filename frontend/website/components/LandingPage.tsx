@@ -451,6 +451,7 @@ function EarlyAccess({ t }: { t: Messages }) {
     setSubmitting(true)
     setSubmitError(null)
     try {
+      if (!supabase) throw new Error('Supabase is not configured')
       const { error } = await supabase.from('waitlist').insert({ email: email.trim().toLowerCase() })
       if (error) {
         if (error.code === '23505') {

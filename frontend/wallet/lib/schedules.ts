@@ -1,4 +1,4 @@
-import { supabase } from './supabase'
+import { requireSupabase } from './supabase'
 
 export interface PaymentSchedule {
   id?: string | number
@@ -12,7 +12,7 @@ export interface PaymentSchedule {
 }
 
 export async function createSchedule(schedule: Omit<PaymentSchedule, 'id'>): Promise<PaymentSchedule> {
-  const { data, error } = await supabase
+  const { data, error } = await requireSupabase()
     .from('payment_schedules')
     .insert([schedule])
     .select()
@@ -25,7 +25,7 @@ export async function createSchedule(schedule: Omit<PaymentSchedule, 'id'>): Pro
 }
 
 export async function getSchedules(owner: string): Promise<PaymentSchedule[]> {
-  const { data, error } = await supabase
+  const { data, error } = await requireSupabase()
     .from('payment_schedules')
     .select('*')
     .eq('owner', owner)
@@ -38,7 +38,7 @@ export async function getSchedules(owner: string): Promise<PaymentSchedule[]> {
 }
 
 export async function deleteSchedule(id: string | number): Promise<void> {
-  const { error } = await supabase
+  const { error } = await requireSupabase()
     .from('payment_schedules')
     .delete()
     .eq('id', id)
@@ -49,7 +49,7 @@ export async function deleteSchedule(id: string | number): Promise<void> {
 }
 
 export async function updateSchedule(id: string | number, updates: Partial<PaymentSchedule>): Promise<PaymentSchedule> {
-  const { data, error } = await supabase
+  const { data, error } = await requireSupabase()
     .from('payment_schedules')
     .update(updates)
     .eq('id', id)
@@ -64,7 +64,7 @@ export async function updateSchedule(id: string | number, updates: Partial<Payme
 
 export async function getDueSchedules(owner: string): Promise<PaymentSchedule[]> {
   const now = new Date().toISOString()
-  const { data, error } = await supabase
+  const { data, error } = await requireSupabase()
     .from('payment_schedules')
     .select('*')
     .eq('owner', owner)
