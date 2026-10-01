@@ -24,6 +24,13 @@ import { CopyIcon, DownloadIcon, HexagonIcon, ShareIcon } from '../components/ic
 const REQUESTABLE_CODES = ['USDC', 'USDT0'] as const;
 type RequestCode = 'XLM' | (typeof REQUESTABLE_CODES)[number];
 
+/**
+ * How long a "Copied" confirmation stays up. It also has to be long enough for
+ * a UI-automation run to observe it — its next view dump can land a second after
+ * the tap, and a shorter window asserts against text already back to "Copy".
+ */
+const COPY_FEEDBACK_MS = 2500;
+
 function shorten(a: string, head = 12, tail = 12): string {
   return a.length > head + tail + 1 ? `${a.slice(0, head)}…${a.slice(-tail)}` : a;
 }
@@ -76,7 +83,7 @@ export default function ReceiveScreen() {
     if (!feePayer) return;
     await Clipboard.setStringAsync(feePayer);
     setCopiedFp(true);
-    setTimeout(() => setCopiedFp(false), 1200);
+    setTimeout(() => setCopiedFp(false), COPY_FEEDBACK_MS);
   }
 
   const isContract = address?.startsWith('C') ?? false;
@@ -137,14 +144,14 @@ export default function ReceiveScreen() {
     if (!address) return;
     await Clipboard.setStringAsync(address);
     setCopiedContract(true);
-    setTimeout(() => setCopiedContract(false), 1200);
+    setTimeout(() => setCopiedContract(false), COPY_FEEDBACK_MS);
   }
 
   async function handleCopy() {
     if (!shareText) return;
     await Clipboard.setStringAsync(shareText);
     setCopied(true);
-    setTimeout(() => setCopied(false), 1200);
+    setTimeout(() => setCopied(false), COPY_FEEDBACK_MS);
   }
 
   async function handleShare() {
