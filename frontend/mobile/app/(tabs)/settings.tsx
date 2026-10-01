@@ -165,6 +165,7 @@ export default function SettingsScreen() {
       onPress: () => handleNetworkToggle(onTestnet),
       switch: { value: !onTestnet, onChange: (v) => handleNetworkToggle(v) },
     },
+    { key: 'fee-payer', title: 'Fee payer', subtitle: 'The account that pays network fees, and its balance', onPress: () => router.push('/settings/fee-payer') },
     { key: 'dapps', title: 'Discover dApps', subtitle: 'Browse the Stellar apps Veil can open', onPress: () => router.push('/dapps') },
     { key: 'multisig', title: 'Multisig', subtitle: 'View signers and approval threshold', onPress: () => router.push('/multisig') },
     { key: 'contacts', title: 'Address book', subtitle: 'Saved recipients and labels', onPress: () => router.push('/contacts') },
