@@ -3,7 +3,6 @@
 import { TransactionBuilder, hash } from '@stellar/stellar-sdk'
 import { ensureFeePayer } from '@/lib/feePayer'
 import { getNetwork } from '@/lib/network'
-import { walletLocal, walletSession } from '@/lib/walletStorage'
 import { getSppConfig } from './config'
 
 export type PrivacyStatus = 'idle' | 'syncing' | 'ready' | 'error'
@@ -29,10 +28,6 @@ function toBigInt(value: bigint | number | string): bigint {
   if (typeof value === 'bigint') return value
   if (typeof value === 'number') return BigInt(Math.trunc(value))
   return BigInt(value)
-}
-
-function getWalletAddress(): string {
-  return walletSession.getItem('invisible_wallet_address') || walletLocal.getItem('invisible_wallet_address') || ''
 }
 
 async function getSigner() {
@@ -113,7 +108,11 @@ async function initClient(): Promise<PrivacyClient> {
   })
 
   const signer = await getSigner()
-  const account = await client.account({ networkPassphrase: network.networkPassphrase, userAddress: getWalletAddress() }, signer as any)
+  // `userAddress` is deliberately omitted: SPP resolves it from
+  // `signer.getPublicKey()` and defaults `signerAddress` to it. Passing the
+  // wallet's `C…` contract address here while signing with the `G…` spending
+  // account would pair an address with a key that cannot authorise for it.
+  const account = await client.account({ networkPassphrase: network.networkPassphrase }, signer as any)
 
   const pool = await account.pool({ poolContract: sppConfig.pools[0].id })
 
@@ -146,7 +145,13 @@ async function initClient(): Promise<PrivacyClient> {
 }
 
 export async function getPrivacyClient(): Promise<PrivacyClient> {
-  clientPromise ??= initClient()
+  // Cache the successful client only. A rejected promise left in place would
+  // make every later retry re-throw the first failure (an unfunded fee payer,
+  // say) until the page is reloaded.
+  clientPromise ??= initClient().catch((error) => {
+    clientPromise = null
+    throw error
+  })
   return clientPromise
 }
 
