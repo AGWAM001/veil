@@ -29,6 +29,7 @@ import {
   setNotifOutgoing,
 } from '../../lib/notificationPrefs';
 import { requestNotificationPermissions } from '../../lib/notifications';
+import { TRUSTLINE_RESERVE_COST_XLM } from '../../lib/reserves';
 
 type Row = {
   key: string;
@@ -168,6 +169,7 @@ export default function SettingsScreen() {
     },
     { key: 'fee-payer', title: 'Fee payer', subtitle: 'The account that pays network fees, and its balance', onPress: () => router.push('/settings/fee-payer') },
     { key: 'dapps', title: 'Discover dApps', subtitle: 'Browse the Stellar apps Veil can open', onPress: () => router.push('/dapps') },
+    { key: 'trustlines', title: 'Trustlines & reserves', subtitle: `Manage enabled assets and reclaim locked reserves (${TRUSTLINE_RESERVE_COST_XLM} XLM each)`, onPress: () => router.push('/assets') },
     { key: 'multisig', title: 'Multisig', subtitle: 'View signers and approval threshold', onPress: () => router.push('/multisig') },
     { key: 'contacts', title: 'Address book', subtitle: 'Saved recipients and labels', onPress: () => router.push('/contacts') },
     // Plain path, no params: the name lives in AsyncStorage, and a route

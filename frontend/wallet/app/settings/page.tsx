@@ -5,6 +5,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { Keypair } from '@stellar/stellar-sdk'
 import { VeilMark } from '@/components/ui/VeilMark'
+import { TRUSTLINE_RESERVE_COST_XLM } from '@/lib/reserves'
 import { ThemeToggle } from '@/components/ThemeToggle'
 import { useInvisibleWallet, type SignerInfo } from '@veil/sdk'
 import { ensureWalletDeployed, getDeploymentState } from '@/lib/walletDeployment'
@@ -416,6 +417,25 @@ export default function SettingsPage() {
                     <p style={{ fontWeight: 500, fontSize: '0.9375rem' }}>Passkeys</p>
                     <p style={{ fontSize: '0.8125rem', color: 'rgba(246,247,248,0.4)', marginTop: '0.25rem' }}>
                       View and manage passkeys registered on this wallet
+                    </p>
+                  </div>
+                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" style={{ flexShrink: 0 }}>
+                    <path d="M6 3l5 5-5 5" stroke="rgba(246,247,248,0.3)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                  </svg>
+                </div>
+              </button>
+
+              {/* Trustlines & Reserves card */}
+              <button
+                className="card"
+                onClick={() => router.push('/assets')}
+                style={{ textAlign: 'left', cursor: 'pointer', width: '100%', border: '1px solid var(--border-dim)', background: 'var(--surface)' }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div>
+                    <p style={{ fontWeight: 500, fontSize: '0.9375rem' }}>Trustlines &amp; Reserves</p>
+                    <p style={{ fontSize: '0.8125rem', color: 'rgba(246,247,248,0.4)', marginTop: '0.25rem' }}>
+                      Manage enabled assets, view locked reserves ({TRUSTLINE_RESERVE_COST_XLM} XLM each), and reclaim reserves from empty trustlines
                     </p>
                   </div>
                   <svg width="16" height="16" viewBox="0 0 16 16" fill="none" style={{ flexShrink: 0 }}>
