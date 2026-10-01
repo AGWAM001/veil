@@ -1,4 +1,13 @@
 /**
+ * Verified asset registry (V176) mapping short token keys to exact issuer
+ * addresses and metadata.
+ *
+ * A code alone is not an asset: mainnet has eight assets called USDT0 and seven
+ * are impostors. Anything that names, badges, prices or classifies an asset
+ * must go through `verifiedAsset`, which checks the issuer, not just the code.
+ */
+
+/**
  * Portfolio (held-asset) helpers for the mobile wallet — the native counterpart
  * of the web wallet's assets view (`frontend/wallet/app/assets/page.tsx`) and
  * its `parseTrustlines` (`frontend/wallet/lib/trustlines.ts`).
@@ -101,6 +110,11 @@ export function getAssetIssuer(code: string, network: 'mainnet' | 'testnet' = 'm
   return asset.issuer;
 }
 
+/**
+ * True when `issuer` is the registered issuer for `code` on `network`. The
+ * USDC branch accepts both Circle's mainnet issuer and the SDF test anchor's,
+ * matching how prices are quoted — same contract as the web wallet.
+ */
 export function isRegisteredIssuer(code: string, issuer: string, network: 'mainnet' | 'testnet' = 'mainnet'): boolean {
   // USDC first: it is registered `network: 'mainnet'`, so a registry lookup
   // for testnet returns null and every branch below becomes unreachable.
@@ -116,6 +130,39 @@ export function isRegisteredIssuer(code: string, issuer: string, network: 'mainn
     return false;
   }
   return asset.issuer === issuer;
+}
+
+/**
+ * Soroban SAC contract IDs for registry assets, per network. Keyed by the
+ * *registered* code, so a contract ID resolved through this map always belongs
+ * to a verified issuer — the whole point of the map. Mainnet values are the
+ * canonical SACs (USDT0's also lives in the registry as `sacContractId`);
+ * testnet's is the SDF anchor's USDC.
+ */
+export const KNOWN_SAC_CONTRACT_IDS: Record<'mainnet' | 'testnet', Record<string, string>> = {
+  mainnet: {
+    USDC: 'CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI75',
+    USDT0: USDT0_MAINNET_SAC,
+  },
+  testnet: {
+    USDC: 'CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA',
+  },
+};
+
+/**
+ * The Soroban SAC contract ID for a registered asset's issuer, or null when the
+ * code is not registered on that network or its SAC is not pinned here.
+ * Resolved from constants only — no SDK import (the web counterpart of this
+ * module must stay import-free for the parity harness); a new registry entry
+ * needs its SAC added to `KNOWN_SAC_CONTRACT_IDS` (or a `sacContractId` on its
+ * registry entry) rather than deriving one at runtime. Mirrors
+ * `frontend/wallet/lib/assets.ts` — edit both together.
+ */
+export function sacContractIdForCode(code: string, network: 'mainnet' | 'testnet'): string | null {
+  const asset = getRegisteredAsset(code, network);
+  if (!asset) return null;
+  if (asset.sacContractId && network === 'mainnet') return asset.sacContractId;
+  return KNOWN_SAC_CONTRACT_IDS[network][asset.code] ?? null;
 }
 
 /**
