@@ -13,6 +13,7 @@ import { Asset, Horizon, Keypair, Operation, TransactionBuilder } from '@stellar
 import { getNetwork } from './network';
 import { inclusionFee } from './fees';
 import { classicAsset, pathPaysOut, sameSwapAsset, type PathRecordAssets, type SwapAsset } from './swapAssets';
+import { assertFeePayerCanCoverFee } from './feePayerCheck';
 
 // Assets arrive as registry-checked code:issuer pairs (lib/swapAssets). This
 // module used to keep its own code → issuer table — a third, unsynced copy of
@@ -74,6 +75,8 @@ export async function sdexSwap(params: {
   const network = getNetwork();
   const server = new Horizon.Server(network.horizonUrl);
   const kp = Keypair.fromSecret(params.signerSecret);
+
+  await assertFeePayerCanCoverFee(kp.publicKey());
 
   const paths = await server.strictSendPaths(src, params.amountIn, [dst]).call();
   const best = bestPathTo(paths.records, params.to);
