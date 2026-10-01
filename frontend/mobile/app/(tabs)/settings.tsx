@@ -173,6 +173,9 @@ export default function SettingsScreen() {
     // Plain path, no params: the name lives in AsyncStorage, and a route
     // parameter would carry it in a URL other apps can read.
     { key: 'profile', title: 'Profile & AI', subtitle: 'Name, language, and agent personality', onPress: () => router.push('/settings/profile') },
+    // The written boundary for the voice surface (#846). A talking wallet makes
+    // people assume it can pay; this is where they check, and what they find.
+    { key: 'voice', title: 'Voice & assistants', subtitle: 'What the assistant can and can never do', onPress: () => router.push('/settings/voice') },
     { key: 'about', title: 'About', subtitle: 'Version, updates, licences and support', onPress: () => router.push('/settings/about') },
   ];
   // NoticeModal rather than Alert.alert: these report an outcome, and the
