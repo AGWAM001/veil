@@ -127,11 +127,24 @@ export async function fetchIssuerFlags(
   }
 }
 
+/**
+ * Shown when the issuer's flags could not be read at all. `null` has to keep
+ * meaning "the flags are clear", so an unreachable Horizon must not collapse
+ * into it — otherwise a transient 429 on one of the parallel `loadAccount`
+ * calls silently removes the disclosure while the Add button still works.
+ */
+export const DISCLOSURE_UNAVAILABLE =
+  'Could not check whether this issuer can freeze or claw back this balance. Try again before adding a trustline.'
+
 export async function fetchAssetDisclosure(
   server: { loadAccount: (id: string) => Promise<any> },
   issuer: string,
 ): Promise<string | null> {
-  const flags = await fetchIssuerFlags(server, issuer)
-  return getAssetControlDisclosure(flags)
+  try {
+    const account = await server.loadAccount(issuer)
+    return getAssetControlDisclosure((account?.flags as HorizonIssuerFlags) ?? null)
+  } catch {
+    return DISCLOSURE_UNAVAILABLE
+  }
 }
 

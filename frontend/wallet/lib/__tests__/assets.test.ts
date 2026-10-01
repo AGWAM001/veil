@@ -13,6 +13,7 @@ import {
   getAssetControlDisclosure,
   fetchAssetDisclosure,
   fetchIssuerFlags,
+  DISCLOSURE_UNAVAILABLE,
 } from '../assets'
 
 describe('Verified Asset Registry - USDT0 (Issue #787)', () => {
@@ -132,10 +133,29 @@ describe('USDT0 Freeze and Clawback Disclosure (Issue #789)', () => {
     )
     expect(mockServer.loadAccount).toHaveBeenCalledWith(USDT0_MAINNET_ISSUER)
 
-    // Using real impostor address verified on Stellar mainnet
+    // A real (StrKey-valid) USDT0 impostor issuer on mainnet, standing in here
+    // for "some other issuer". The mock hands it clear flags; on live mainnet
+    // this account actually has auth_revocable set, so do not read the null
+    // below as a statement about that issuer.
     const realImpostor = 'GC35JBERU4SFTDVOF32A2SIJN5FHSLSZFZSGP6VVFWCZNDVGJFLQBANK'
     const impostorDisc = await fetchAssetDisclosure(mockServer, realImpostor)
     expect(impostorDisc).toBeNull()
+  })
+
+  it('does not fail open when the issuer account cannot be read', async () => {
+    const deadServer = {
+      loadAccount: jest.fn(async () => {
+        throw new Error('Request failed with status code 429')
+      }),
+    }
+
+    // `null` means "the flags are clear". An unreachable Horizon must not be
+    // indistinguishable from that, or the disclosure vanishes while the Add
+    // trustline button stays live.
+    await expect(fetchAssetDisclosure(deadServer, USDT0_MAINNET_ISSUER)).resolves.toBe(
+      DISCLOSURE_UNAVAILABLE,
+    )
+    await expect(fetchIssuerFlags(deadServer, USDT0_MAINNET_ISSUER)).resolves.toBeNull()
   })
 })
 
