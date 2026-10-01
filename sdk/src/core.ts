@@ -1004,9 +1004,8 @@ export class InvisibleWalletCore {
             }
 
             const assembled = SorobanRpc.assembleTransaction(tx, sim).build();
-            const submissionTx = signForSubmission(
-                await this.reprepareWithSignedAuth(assembled, signerKeypair), signerKeypair, this.config);
-            const submissionTx = await signForSubmission(assembled, signer, this.config);
+            const submissionTx = await signForSubmission(
+                await this.reprepareWithSignedAuth(assembled, signer), signer, this.config);
 
             const sendResult = await server.sendTransaction(submissionTx);
             if (sendResult.status === 'ERROR') {
@@ -1281,7 +1280,7 @@ export class InvisibleWalletCore {
      */
     private reprepareWithSignedAuth = async (
         assembled: Transaction,
-        payerKeypair: Keypair
+        signer: SignerInput
     ): Promise<Transaction> => {
         const invokeOp = assembled.operations?.[0] as Operation.InvokeHostFunction | undefined;
         const signedAuth = invokeOp?.auth ?? [];
@@ -1289,7 +1288,7 @@ export class InvisibleWalletCore {
 
         const { rpcUrl, networkPassphrase } = this.config;
         const server = new SorobanRpc.Server(rpcUrl);
-        const payer = await server.getAccount(payerKeypair.publicKey());
+        const payer = await server.getAccount(resolveSigner(signer).publicKey);
 
         const retryTx = new TransactionBuilder(payer, {
             fee: BASE_FEE,
@@ -1400,9 +1399,8 @@ export class InvisibleWalletCore {
             }
 
             const assembled = SorobanRpc.assembleTransaction(tx, sim).build();
-            const submissionTx = signForSubmission(
-                await this.reprepareWithSignedAuth(assembled, signerKeypair), signerKeypair, this.config);
-            const submissionTx = await signForSubmission(assembled, signer, this.config);
+            const submissionTx = await signForSubmission(
+                await this.reprepareWithSignedAuth(assembled, signer), signer, this.config);
 
             const sendResult = await server.sendTransaction(submissionTx);
             if (sendResult.status === 'ERROR') {
@@ -1530,9 +1528,8 @@ export class InvisibleWalletCore {
             }
 
             const assembled = SorobanRpc.assembleTransaction(tx, sim).build();
-            const submissionTx = signForSubmission(
-                await this.reprepareWithSignedAuth(assembled, signerKeypair), signerKeypair, this.config);
-            const submissionTx = await signForSubmission(assembled, signer, this.config);
+            const submissionTx = await signForSubmission(
+                await this.reprepareWithSignedAuth(assembled, signer), signer, this.config);
 
             const sendResult = await server.sendTransaction(submissionTx);
             if (sendResult.status === 'ERROR') {
@@ -1594,9 +1591,8 @@ export class InvisibleWalletCore {
 
             await this.authorizeEntries(sim as SorobanRpc.Api.SimulateTransactionSuccessResponse);
 
-            const submissionTx = signForSubmission(
-                await this.reprepareWithSignedAuth(assembled, signerKeypair), signerKeypair, this.config);
-            const submissionTx = await signForSubmission(assembled, signer, this.config);
+            const submissionTx = await signForSubmission(
+                await this.reprepareWithSignedAuth(assembled, signer), signer, this.config);
 
             const sendResult = await server.sendTransaction(submissionTx);
             if (sendResult.status === 'ERROR') {
@@ -1716,9 +1712,8 @@ export class InvisibleWalletCore {
             //    persist the new credential below.
             await this.authorizeEntries(sim as SorobanRpc.Api.SimulateTransactionSuccessResponse);
 
-            const submissionTx = signForSubmission(
-                await this.reprepareWithSignedAuth(assembled, signerKeypair), signerKeypair, this.config);
-            const submissionTx = await signForSubmission(assembled, signer, this.config);
+            const submissionTx = await signForSubmission(
+                await this.reprepareWithSignedAuth(assembled, signer), signer, this.config);
 
             const sendResult = await server.sendTransaction(submissionTx);
             if (sendResult.status === 'ERROR') {
@@ -1805,9 +1800,8 @@ export class InvisibleWalletCore {
             }
 
             const assembled = SorobanRpc.assembleTransaction(tx, sim).build();
-            const submissionTx = signForSubmission(
-                await this.reprepareWithSignedAuth(assembled, guardianKeypair), guardianKeypair, this.config);
-            const submissionTx = await signForSubmission(assembled, signer, this.config);
+            const submissionTx = await signForSubmission(
+                await this.reprepareWithSignedAuth(assembled, signer), signer, this.config);
 
             const sendResult = await server.sendTransaction(submissionTx);
             if (sendResult.status === 'ERROR') {
@@ -1882,9 +1876,8 @@ export class InvisibleWalletCore {
             }
 
             const assembled = SorobanRpc.assembleTransaction(tx, sim).build();
-            const submissionTx = signForSubmission(
-                await this.reprepareWithSignedAuth(assembled, payerKeypair), payerKeypair, this.config);
-            const submissionTx = await signForSubmission(assembled, signer, this.config);
+            const submissionTx = await signForSubmission(
+                await this.reprepareWithSignedAuth(assembled, signer), signer, this.config);
 
             const sendResult = await server.sendTransaction(submissionTx);
             if (sendResult.status === 'ERROR') {
@@ -2016,9 +2009,8 @@ export class InvisibleWalletCore {
 
             await this.authorizeEntries(sim as SorobanRpc.Api.SimulateTransactionSuccessResponse);
 
-            const submissionTx = signForSubmission(
-                await this.reprepareWithSignedAuth(assembled, payerKeypair), payerKeypair, this.config);
-            const submissionTx = await signForSubmission(assembled, signer, this.config);
+            const submissionTx = await signForSubmission(
+                await this.reprepareWithSignedAuth(assembled, signer), signer, this.config);
             const sendResult = await server.sendTransaction(submissionTx);
             if (sendResult.status === 'ERROR') {
                 throw new Error(
@@ -2149,9 +2141,8 @@ export class InvisibleWalletCore {
 
             await this.authorizeEntries(sim as SorobanRpc.Api.SimulateTransactionSuccessResponse);
 
-            const submissionTx = signForSubmission(
-                await this.reprepareWithSignedAuth(assembled, signerKeypair), signerKeypair, this.config);
-            const submissionTx = await signForSubmission(assembled, signer, this.config);
+            const submissionTx = await signForSubmission(
+                await this.reprepareWithSignedAuth(assembled, signer), signer, this.config);
 
             const sendResult = await server.sendTransaction(submissionTx);
             if (sendResult.status === 'ERROR') {
