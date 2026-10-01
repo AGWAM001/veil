@@ -50,6 +50,25 @@ const REGISTRY: Record<StellarNetwork, Record<string, VerifiedAsset>> = {
   },
 }
 
+/**
+ * Every registered entry, flattened, so a test can assert over all of them
+ * rather than over the handful that happen to be exported as constants.
+ *
+ * This exists because an invalid issuer has reached a PR four times. The
+ * checks that should have caught it did not: the parity tests compare the
+ * three copies of the registry to each other, so an address that is wrong
+ * identically in all three passes, and the per-constant StrKey assertions
+ * only cover the constants someone remembered to add. Iterating the registry
+ * means a *new* asset is covered the moment it is added, by nobody's
+ * discipline.
+ */
+export const ALL_REGISTERED_ASSETS: ReadonlyArray<{
+  network: StellarNetwork
+  asset: VerifiedAsset
+}> = (Object.keys(REGISTRY) as StellarNetwork[]).flatMap((network) =>
+  Object.values(REGISTRY[network]).map((asset) => ({ network, asset })),
+)
+
 /** Registered entry for a code on this network, if any. */
 export function registeredAsset(code: string, network: StellarNetwork = NETWORK): VerifiedAsset | null {
   return REGISTRY[network][code.trim().toUpperCase()] ?? null
