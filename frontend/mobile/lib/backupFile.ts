@@ -33,6 +33,7 @@ import { getNetwork } from './network';
 const ADDRESS_KEY = 'invisible_wallet_address';
 const PUBLIC_KEY_KEY = 'invisible_wallet_public_key';
 const SETTINGS_KEY = 'veil_wallet_settings';
+export const BACKUP_LAST_EXPORTED_KEY = 'veil_backup_last_exported_at';
 
 /** Sub-directory of the cache dir that exported envelopes are staged in. */
 const EXPORT_DIR_NAME = 'veil-backups';
@@ -200,7 +201,15 @@ export async function exportBackupToFile(
   const file = backend.files.get(id);
   if (!file) throw new BackupError('Backup was encrypted but no file was written');
 
+  await AsyncStorage.setItem(BACKUP_LAST_EXPORTED_KEY, String(Date.now()));
+
   return { id, encrypted, uri: file.uri, filename: file.name };
+}
+
+export async function getLastBackupExportedAt(): Promise<number | null> {
+  const raw = await AsyncStorage.getItem(BACKUP_LAST_EXPORTED_KEY);
+  const timestamp = raw ? Number(raw) : NaN;
+  return Number.isFinite(timestamp) && timestamp > 0 ? timestamp : null;
 }
 
 /**
