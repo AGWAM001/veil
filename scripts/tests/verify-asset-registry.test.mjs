@@ -357,4 +357,27 @@ for (const [label, path] of [
       );
     }
   });
+
+  // Checksum validity is necessary and nowhere near sufficient. A SAC is
+  // derived deterministically from (code, issuer, network passphrase), so the
+  // only question worth asking is whether the pinned id is the contract this
+  // asset actually has — and a *different real* contract passes every shape
+  // and checksum test there is.
+  //
+  // This is not hypothetical. A PR this week pinned
+  // `CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC` as the testnet
+  // USDC SAC. It is a perfectly valid contract id — it is the testnet SAC for
+  // native XLM, pinned correctly as exactly that in `lib/privacy/config.ts`,
+  // which is almost certainly where it was copied from. Had it landed, an XLM
+  // balance would have been labelled USDC and multiplied by the USDC price,
+  // while real testnet USDC fell through as unrecognised.
+  test(`every ${label} registry SAC derives from its own issuer`, () => {
+    for (const asset of parseAssetRegistry(path).filter((a) => a.sacContractId)) {
+      // Throws with both the derived and the registered id on mismatch.
+      assert.doesNotThrow(
+        () => deriveSacContractId(asset),
+        `${label} registry: ${asset.key} (${asset.code}) pins a SAC that does not derive from its issuer`,
+      );
+    }
+  });
 }
