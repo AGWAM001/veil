@@ -17,7 +17,9 @@ import { QrScanner } from '@/components/QrScanner'
 import { useInactivityLock } from '@/hooks/useInactivityLock'
 import { readPaymentRequest, resolveRequestedAsset, type IssuedAsset } from '@/lib/requestedAsset'
 import { getRegisteredAsset } from '@/lib/assets'
+import { buildSep7Memo, type Sep7MemoType } from '@/lib/sep7'
 import { passkeyErrorMessage } from '@/lib/passkeyAuth'
+import { validateMemoText, MEMO_EXCEEDS_LIMIT_MESSAGE } from '@/lib/memo'
 
 import { getNativeAssetContractId, getNetwork, getNetworkName } from '@/lib/network'
 import { beginTx, endTx } from '@/lib/txState'
@@ -73,6 +75,19 @@ export default function SendPage() {
   const [requestedAsset, setRequestedAsset] = useState<IssuedAsset | null>(null)
   /** Why the last payment request was refused, in words (#791). */
   const [requestError, setRequestError]     = useState<string | null>(null)
+  /**
+   * SEP-7 `memo_type` for the memo above. A memo of the wrong type is credited
+   * by nobody, so the type travels with the value rather than being assumed
+   * to be text (#817).
+   */
+  const [memoType, setMemoType]       = useState<Sep7MemoType | string | undefined>()
+  /**
+   * Only MEMO_TEXT carries the 28-byte cap. A MEMO_ID is a uint64 and
+   * MEMO_HASH / MEMO_RETURN are 32 raw bytes written as 64 hex (or base64)
+   * characters, so applying the text cap to them would refuse valid links.
+   */
+  const memoIsText = !memoType || String(memoType).toUpperCase().replace(/^MEMO_/, '') === 'TEXT'
+  const memoLengthError = memoIsText ? validateMemoText(memo) : null
 
   /**
    * Prefill from the query string, so another screen can hand off a payment it
@@ -100,9 +115,11 @@ export default function SendPage() {
     const to = q.get('to')
     const amt = q.get('amount')
     const m = q.get('memo')
+    const mt = q.get('memo_type')
     if (to) setRecipient(to)
     if (amt) setAmount(amt)
     if (m) setMemo(m)
+    if (mt) setMemoType(mt)
   }, [])
   const [txHash, setTxHash]           = useState<string | null>(null)
   const [errorMsg, setErrorMsg]       = useState<string | null>(null)
@@ -208,6 +225,7 @@ export default function SendPage() {
     setRecipient(prefill.destination)
     if (prefill.amount) setAmount(prefill.amount)
     if (prefill.memo) setMemo(prefill.memo)
+    setMemoType(prefill.memoType)
     if (read.asset) {
       setRequestedAsset(read.asset)
     } else if (prefill.assetCode === undefined && value.trim().toLowerCase().startsWith('web+stellar:')) {
@@ -271,6 +289,7 @@ export default function SendPage() {
     if (!validAddress) return false
     if (isNaN(parseFloat(amount)) || parseFloat(amount) <= 0) return false
     if (!selectedAsset) return false
+    if (memo && memoLengthError !== null) return false
     return true
   }
 
@@ -279,6 +298,12 @@ export default function SendPage() {
     setStep('signing')
     setErrorMsg(null)
     try {
+      if (memo && memoLengthError) {
+        setErrorMsg(memoLengthError)
+        setStep('error')
+        return
+      }
+
       const signerSecret = walletSession.getItem('veil_signer_secret')
         || walletLocal.getItem('veil_signer_secret')
       if (!signerSecret) {
@@ -310,7 +335,7 @@ export default function SendPage() {
 
       if (recipient.startsWith('G') && recipient.length === 56) {
         const account = await horizonServer.loadAccount(feePayerKp.publicKey())
-        const tx = new TransactionBuilder(account, {
+        const builder = new TransactionBuilder(account, {
           fee: inclusionFee(),
           networkPassphrase: network.networkPassphrase,
         })
@@ -324,7 +349,10 @@ export default function SendPage() {
             amount,
           }))
           .setTimeout(30)
-          .build()
+        if (memo.trim()) {
+          builder.addMemo(buildSep7Memo(memo.trim(), memoType))
+        }
+        const tx = builder.build()
         tx.sign(feePayerKp)
         const result = await horizonServer.submitTransaction(tx)
         setTxHash(result.hash)
@@ -603,8 +631,12 @@ export default function SendPage() {
                 placeholder="Add a note for the recipient"
                 value={memo}
                 onChange={e => setMemo(e.target.value)}
-                maxLength={28}
               />
+              {memo && memoLengthError && (
+                <p style={{ fontSize: '0.75rem', color: '#e5484d', marginTop: '0.375rem', lineHeight: 1.4 }}>
+                  {MEMO_EXCEEDS_LIMIT_MESSAGE}
+                </p>
+              )}
             </div>
 
             <div className="vw-feerow">

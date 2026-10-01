@@ -13,11 +13,10 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Horizon } from '@stellar/stellar-sdk';
 
+import { getNetwork } from './network';
+
 /** AsyncStorage key holding the active wallet's public key (shared with backupFile). */
 export const WALLET_PUBLIC_KEY_KEY = 'invisible_wallet_public_key';
-
-const HORIZON_URL =
-  process.env['EXPO_PUBLIC_HORIZON_URL']?.trim() || 'https://horizon-testnet.stellar.org';
 
 /** Subset of a Horizon balance entry we depend on. */
 export interface HorizonBalanceLike {
@@ -182,7 +181,11 @@ function isAccountNotFound(err: unknown): boolean {
  * an error; any other failure propagates so the screen can surface it.
  */
 export async function fetchHeldAssets(publicKey: string): Promise<HeldAsset[]> {
-  const server = new Horizon.Server(HORIZON_URL);
+  // Read at call time from the ACTIVE network, not from a module constant: a
+  // build-time default froze this to testnet Horizon, so on mainnet the
+  // portfolio screen queried the wrong chain and showed an empty portfolio.
+  // Each network's own env overrides still apply (see lib/network.ts).
+  const server = new Horizon.Server(getNetwork().horizonUrl);
   try {
     const account = await server.loadAccount(publicKey);
     return parseHeldAssets(account.balances as unknown as HorizonBalanceLike[]);

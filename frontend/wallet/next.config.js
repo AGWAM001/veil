@@ -8,6 +8,13 @@ const nextConfig = {
   // page keeps retrying a blocked request. No effect on a production build.
   allowedDevOrigins: ['127.0.0.1'],
   outputFileTracingRoot: path.join(__dirname, '../../'),
+  // Vercel auto-populates VERCEL_GIT_COMMIT_SHA, but it isn't prefixed
+  // NEXT_PUBLIC_ so it never reaches the client bundle on its own. Re-expose it
+  // under a NEXT_PUBLIC_ name so the About screen can show which build is
+  // running; 'dev' covers local builds where no commit env var is set.
+  env: {
+    NEXT_PUBLIC_COMMIT_SHA: process.env.VERCEL_GIT_COMMIT_SHA || process.env.NEXT_PUBLIC_COMMIT_SHA || 'dev',
+  },
   experimental: {
     // Allow imports from outside the Next.js project root (e.g. ../../sdk/src)
     externalDir: true,

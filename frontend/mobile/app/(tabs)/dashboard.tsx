@@ -1,5 +1,5 @@
-import { errorMessage } from '../../lib/errorMessage';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { errorMessage } from '../../lib/errorMessage';
 import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect, useRouter } from 'expo-router';
@@ -10,6 +10,7 @@ import { TxDetailSheet } from '../../components/TxDetailSheet';
 import type { BottomSheetModal } from '@gorhom/bottom-sheet';
 import { VeilLogo } from '../../components/VeilLogo';
 import { SilverBalanceCard } from '../../components/SilverBalanceCard';
+import { PrivateBalanceCard } from '../../components/PrivateBalanceCard';
 import { PayForGrid, BILL_SERVICES } from '../../components/PayForGrid';
 import { isOfframpAvailable, lastKnownAvailability } from '../../lib/offramp';
 import { ServicesDrawer } from '../../components/ServicesDrawer';
@@ -26,7 +27,6 @@ import { usePolling } from '../../hooks/usePolling';
 import { fetchDashboardData } from '../../lib/activity';
 import { fetchPrice, usdValue } from '../../lib/fetchPrice';
 import { loadHoldings } from '../../lib/holdings';
-import { getNetwork } from '../../lib/network';
 import { ensureBreadcrumbs } from '../../lib/walletBreadcrumbs';
 import { ensureCorrectWalletAddress } from '../../lib/walletRepair';
 import { useNetwork } from '../../hooks/useNetwork';
@@ -316,6 +316,12 @@ export default function DashboardTab() {
         onMore={() => setServicesOpen(true)}
       />
 
+      {/* Private balance preview — the card gates itself on isPrivacyEnabled()
+          from lib/privacy/config (build-time flag, and never on mainnet), so it
+          renders nothing unless this build opts in. Sits between the public card
+          and the Pay-for grid so both balance types are visible at a glance. */}
+      <PrivateBalanceCard />
+
       <ServicesDrawer visible={servicesOpen} onClose={() => setServicesOpen(false)} />
 
       <AssetsList
@@ -325,6 +331,12 @@ export default function DashboardTab() {
       />
 
       {/* Activity feed — 3 most recent, full history on the transactions page */}
+      <View style={styles.sectionHeader}>
+        <Text style={styles.sectionTitle}>Collectibles</Text>
+        <Pressable onPress={() => router.push('/nfts')} hitSlop={8} accessibilityRole="button">
+          <Text style={styles.sectionLink}>View NFTs →</Text>
+        </Pressable>
+      </View>
       <View style={styles.sectionHeader}>
         <Text style={styles.sectionTitle}>Activity</Text>
         <Pressable onPress={() => router.push('/transactions')} hitSlop={8} accessibilityRole="button">

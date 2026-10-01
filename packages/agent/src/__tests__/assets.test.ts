@@ -1,6 +1,7 @@
 import { describe, it, expect } from '@jest/globals'
 import { Networks, StrKey } from '@stellar/stellar-sdk'
 import {
+  ALL_REGISTERED_ASSETS,
   USDT0_MAINNET_ISSUER,
   USDT0_MAINNET_SAC,
   classifyBalances,
@@ -26,6 +27,44 @@ describe('pinned USDT0 constants', () => {
     const usdt0 = registeredAsset('USDT0', 'mainnet')!
     expect(deriveSac(usdt0, Networks.PUBLIC)).toBe(USDT0_MAINNET_SAC)
     expect(usdt0.sac).toBe(USDT0_MAINNET_SAC)
+  })
+})
+
+/**
+ * Exhaustive, so adding an asset cannot skip the check.
+ *
+ * An invalid issuer has reached a PR four times now, and each time the
+ * existing guards let it through: the registry-parity tests only compare the
+ * three copies to each other, so an address wrong identically in all three is
+ * agreed-upon rather than caught, and the assertions above cover only the
+ * constants someone remembered to export. The failure is also inverted and
+ * therefore quiet — an unparseable issuer makes the *genuine* asset look like
+ * an impersonator, which reads as the verification working.
+ *
+ * `StrKey` verifies the CRC16-XModem checksum. A regex over length and the
+ * base32 alphabet does not, and every bad address so far passed one.
+ */
+describe('every registered asset', () => {
+  it.each(ALL_REGISTERED_ASSETS.map(({ network, asset }) => [network, asset.code, asset] as const))(
+    '%s %s has a checksum-valid issuer',
+    (_network, _code, asset) => {
+      expect(StrKey.isValidEd25519PublicKey(asset.issuer)).toBe(true)
+    },
+  )
+
+  it.each(
+    ALL_REGISTERED_ASSETS.filter(({ asset }) => asset.sac).map(
+      ({ network, asset }) => [network, asset.code, asset] as const,
+    ),
+  )('%s %s has a checksum-valid SAC that derives from its issuer', (network, _code, asset) => {
+    expect(StrKey.isValidContract(asset.sac!)).toBe(true)
+    // A pasted SAC that does not derive from the issuer is pinned to something
+    // other than the asset it claims to be.
+    expect(deriveSac(asset, network === 'mainnet' ? Networks.PUBLIC : Networks.TESTNET)).toBe(asset.sac)
+  })
+
+  it('is non-empty, so the assertions above cannot vacuously pass', () => {
+    expect(ALL_REGISTERED_ASSETS.length).toBeGreaterThan(0)
   })
 })
 

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { dirname, join, resolve } from 'node:path';
 import test from 'node:test';
+import { StrKey } from '@stellar/stellar-sdk';
 import { fileURLToPath } from 'node:url';
 
 import {
@@ -311,3 +312,72 @@ test('USDT0 SAC mismatch fails instead of trusting the stored literal', () => {
     /SAC mismatch/,
   );
 });
+
+// ── Exhaustive checksum validation ───────────────────────────────────────────
+//
+// An invalid Stellar address has reached a PR four times. Each time the guards
+// that existed let it through, for two reasons worth stating plainly:
+//
+//   1. `assertRegistryParity` compares the wallet and mobile registries to each
+//      other. An address that is wrong *identically* in both is agreed upon,
+//      not caught — and a contributor editing one copy usually copies it into
+//      the other, so identical-wrong is the normal shape of the bug.
+//   2. The checks that do validate an address name specific constants, so they
+//      only ever cover the assets someone remembered to add them for. A newly
+//      registered asset arrives with no check at all.
+//
+// The failure is quiet and inverted, which is what makes it dangerous: an
+// issuer that cannot be parsed makes the *genuine* asset fail verification and
+// be labelled an impersonator, which reads exactly like the feature working.
+//
+// `StrKey` verifies the CRC16-XModem checksum. A regex over length and the
+// base32 alphabet does not, and every bad address so far satisfied one — most
+// recently a 55-character BENJI issuer that differed from the real one by a
+// single dropped character.
+for (const [label, path] of [
+  ['wallet', walletAssetsPath],
+  ['mobile', mobileAssetsPath],
+]) {
+  test(`every ${label} registry issuer is checksum-valid`, () => {
+    const assets = parseAssetRegistry(path);
+    assert.ok(assets.length > 0, `${label} registry parsed as empty — the assertions below would pass vacuously`);
+    for (const asset of assets) {
+      assert.ok(
+        StrKey.isValidEd25519PublicKey(asset.issuer),
+        `${label} registry: ${asset.key} (${asset.code}) issuer is not a valid Stellar account id: ${asset.issuer}`,
+      );
+    }
+  });
+
+  test(`every ${label} registry SAC contract id is checksum-valid`, () => {
+    for (const asset of parseAssetRegistry(path).filter((a) => a.sacContractId)) {
+      assert.ok(
+        StrKey.isValidContract(asset.sacContractId),
+        `${label} registry: ${asset.key} (${asset.code}) sacContractId is not a valid contract id: ${asset.sacContractId}`,
+      );
+    }
+  });
+
+  // Checksum validity is necessary and nowhere near sufficient. A SAC is
+  // derived deterministically from (code, issuer, network passphrase), so the
+  // only question worth asking is whether the pinned id is the contract this
+  // asset actually has — and a *different real* contract passes every shape
+  // and checksum test there is.
+  //
+  // This is not hypothetical. A PR this week pinned
+  // `CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC` as the testnet
+  // USDC SAC. It is a perfectly valid contract id — it is the testnet SAC for
+  // native XLM, pinned correctly as exactly that in `lib/privacy/config.ts`,
+  // which is almost certainly where it was copied from. Had it landed, an XLM
+  // balance would have been labelled USDC and multiplied by the USDC price,
+  // while real testnet USDC fell through as unrecognised.
+  test(`every ${label} registry SAC derives from its own issuer`, () => {
+    for (const asset of parseAssetRegistry(path).filter((a) => a.sacContractId)) {
+      // Throws with both the derived and the registered id on mismatch.
+      assert.doesNotThrow(
+        () => deriveSacContractId(asset),
+        `${label} registry: ${asset.key} (${asset.code}) pins a SAC that does not derive from its issuer`,
+      );
+    }
+  });
+}

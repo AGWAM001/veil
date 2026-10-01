@@ -11,6 +11,7 @@ import { Asset, Horizon, Keypair, Operation, TransactionBuilder } from '@stellar
 import { inclusionFee } from './fees';
 import { getNetwork, getNetworkName } from './network';
 import { classicAsset, quoteMismatch, type SwapAsset } from './swapAssets';
+import { assertFeePayerCanCoverFee } from './feePayerCheck';
 
 const SOROSWAP_API_KEY = process.env['EXPO_PUBLIC_SOROSWAP_API_KEY']?.trim() || '';
 
@@ -143,6 +144,8 @@ export async function buildSoroswapSwapXdr(
         'Swaps are unavailable: this build has no Soroswap API key configured.'
       );
     }
+
+    await assertFeePayerCanCoverFee(feePayerAddress);
 
     const build = await client.build({
       quote,
