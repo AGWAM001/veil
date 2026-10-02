@@ -7,7 +7,7 @@ import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 
 import {
-  Keypair, TransactionBuilder, BASE_FEE, Asset, Operation,
+  Keypair, TransactionBuilder, BASE_FEE, Asset, Operation, Memo,
   Contract, rpc as SorobanRpc, nativeToScVal, Horizon,
 } from '@stellar/stellar-sdk'
 import { walletLocal, walletSession } from '@/lib/walletStorage'
@@ -16,10 +16,14 @@ import { ContactPicker } from '@/components/ContactPicker'
 import { QrScanner } from '@/components/QrScanner'
 import { useInactivityLock } from '@/hooks/useInactivityLock'
 import { readPaymentRequest, resolveRequestedAsset, type IssuedAsset } from '@/lib/requestedAsset'
+// #704: SEP-7 URIs may declare the memo kind; it is parsed alongside the
+// memo so the submit path builds the right Stellar Memo instead of assuming
+// text.
+import { buildStellarMemo, validateMemo } from '@/lib/sep7'
 import { getRegisteredAsset } from '@/lib/assets'
 import { buildSep7Memo, type Sep7MemoType } from '@/lib/sep7'
 import { passkeyErrorMessage } from '@/lib/passkeyAuth'
-import { validateMemoText, MEMO_EXCEEDS_LIMIT_MESSAGE } from '@/lib/memo'
+import { validateMemoText } from '@/lib/memo'
 
 import { getNativeAssetContractId, getNetwork, getNetworkName } from '@/lib/network'
 import { beginTx, endTx } from '@/lib/txState'
@@ -115,11 +119,15 @@ export default function SendPage() {
     const to = q.get('to')
     const amt = q.get('amount')
     const m = q.get('memo')
-    const mt = q.get('memo_type')
+    const rawMt = (q.get('memo_type') ?? '').toLowerCase().trim()
+    const normalizedMt = rawMt.startsWith('memo_') ? rawMt.slice(5) : rawMt
+    const mt = ['text', 'id', 'hash', 'return'].includes(normalizedMt)
+      ? normalizedMt
+      : null
     if (to) setRecipient(to)
     if (amt) setAmount(amt)
     if (m) setMemo(m)
-    if (mt) setMemoType(mt)
+    if (m && mt) setMemoType(mt)
   }, [])
   const [txHash, setTxHash]           = useState<string | null>(null)
   const [errorMsg, setErrorMsg]       = useState<string | null>(null)
@@ -224,8 +232,10 @@ export default function SendPage() {
     const { prefill } = read
     setRecipient(prefill.destination)
     if (prefill.amount) setAmount(prefill.amount)
-    if (prefill.memo) setMemo(prefill.memo)
-    setMemoType(prefill.memoType)
+    if (prefill.memo) {
+      setMemo(prefill.memo)
+      setMemoType(prefill.memoType)
+    }
     if (read.asset) {
       setRequestedAsset(read.asset)
     } else if (prefill.assetCode === undefined && value.trim().toLowerCase().startsWith('web+stellar:')) {
@@ -289,7 +299,7 @@ export default function SendPage() {
     if (!validAddress) return false
     if (isNaN(parseFloat(amount)) || parseFloat(amount) <= 0) return false
     if (!selectedAsset) return false
-    if (memo && memoLengthError !== null) return false
+    if (memo.trim() && validateMemo(memo, memoType) !== null) return false
     return true
   }
 
@@ -298,10 +308,13 @@ export default function SendPage() {
     setStep('signing')
     setErrorMsg(null)
     try {
-      if (memo && memoLengthError) {
-        setErrorMsg(memoLengthError)
-        setStep('error')
-        return
+      if (memo.trim()) {
+        const memoErr = validateMemo(memo, memoType)
+        if (memoErr) {
+          setErrorMsg(memoErr)
+          setStep('error')
+          return
+        }
       }
 
       const signerSecret = walletSession.getItem('veil_signer_secret')
@@ -348,10 +361,10 @@ export default function SendPage() {
               : Asset.native(),
             amount,
           }))
+          // #704: attach the memo (with its kind) on review-confirmed submit;
+          // without it, exchange deposits arrive uncredited.
+          .addMemo(memo.trim() ? buildStellarMemo(memo, memoType) ?? Memo.none() : Memo.none())
           .setTimeout(30)
-        if (memo.trim()) {
-          builder.addMemo(buildSep7Memo(memo.trim(), memoType))
-        }
         const tx = builder.build()
         tx.sign(feePayerKp)
         const result = await horizonServer.submitTransaction(tx)
@@ -632,9 +645,9 @@ export default function SendPage() {
                 value={memo}
                 onChange={e => setMemo(e.target.value)}
               />
-              {memo && memoLengthError && (
+              {memo && validateMemo(memo, memoType) && (
                 <p style={{ fontSize: '0.75rem', color: '#e5484d', marginTop: '0.375rem', lineHeight: 1.4 }}>
-                  {MEMO_EXCEEDS_LIMIT_MESSAGE}
+                  {validateMemo(memo, memoType)}
                 </p>
               )}
             </div>
@@ -714,7 +727,7 @@ export default function SendPage() {
                     mono
                   />
                 )}
-                {memo && <Row label="Memo" value={memo} />}
+                {memo && <Row label="Memo" value={memoType ? `${memo} (${memoType})` : memo} />}
                 <Row label="Network" value={network.displayName} />
                 <Row label="Auth"    value="Passkey (WebAuthn)" />
               </div>

@@ -22,6 +22,7 @@ import { useWallet } from '../components/WalletProvider';
 import { deployWalletIfNeeded } from '../lib/deployWallet';
 import { sendPayment } from '../lib/sendPayment';
 import { validateMemoText } from '../lib/memo';
+import { validateMemo } from '../lib/sep7';
 import { truncateAddress } from '../components/ui/AddressChip';
 import { getWalletAddress } from '../lib/walletStore';
 import { loadHoldings, unitPrice, type Holding } from '../lib/holdings';
@@ -61,8 +62,8 @@ export default function SendScreen() {
   const { wallet } = useWallet();
   const styles = useMemo(() => createStyles(colors), [colors]);
 
-  // Deep links land here prefilled: `to`, `amount`, `asset` + `issuer`, `memo`.
-  const params = useLocalSearchParams<{ to?: string; amount?: string; asset?: string; issuer?: string; memo?: string }>();
+  // Deep links land here prefilled: `to`, `amount`, `asset` + `issuer`, `memo` + `memo_type` (#704).
+  const params = useLocalSearchParams<{ to?: string; amount?: string; asset?: string; issuer?: string; memo?: string; memo_type?: string }>();
 
   // A link the registry alone refuses (#791) fills in nothing, not even the
   // address: a half-applied request is how the wrong asset gets paid. A code
@@ -78,6 +79,9 @@ export default function SendScreen() {
   const [recipient, setRecipient] = useState(() => (refusedAtOpen ? '' : firstValue(params.to)));
   const [amount, setAmount] = useState(() => (refusedAtOpen ? '' : firstValue(params.amount)));
   const [memo, setMemo] = useState(() => (refusedAtOpen ? '' : firstValue(params.memo)));
+  // SEP-7 memo kind (text/id/hash/return, #704): validated against the memo
+  // before submit rather than silently defaulting to text.
+  const [memoType, setMemoType] = useState(() => (refusedAtOpen ? null : firstValue(params.memo_type) || null));
   const [pickerOpen, setPickerOpen] = useState(false);
   const [scannerOpen, setScannerOpen] = useState(false);
   const [assetSheet, setAssetSheet] = useState(false);
@@ -249,7 +253,7 @@ export default function SendScreen() {
         : classicHeld
       : null;
   const insufficient = spendable !== null && amtNum > 0 && amtNum > spendable;
-  const memoError = validateMemoText(memo);
+  const memoError = memo ? (memoType ? validateMemo(memo, memoType) : validateMemoText(memo)) : null;
   const canSubmit = recipientValid && amtNum > 0 && editable && !insufficient && !!selected && !requestProblem && !memoError;
 
   const up = selected ? unitPrice(selected) : null;
@@ -272,7 +276,7 @@ export default function SendScreen() {
   const handleSend = async () => {
     if (!canSubmit) return;
     if (memo) {
-      const memoErr = validateMemoText(memo);
+      const memoErr = memoType ? validateMemo(memo, memoType) : validateMemoText(memo);
       if (memoErr) {
         setError(memoErr);
         setStep('error');
@@ -348,6 +352,7 @@ export default function SendScreen() {
         signer,
         memo,
         nonNative && selected ? { code: selected.code, issuer: selected.issuer } : undefined,
+        memoType || undefined,
       );
       setHash(result.hash);
       setStep('done');
@@ -368,6 +373,7 @@ export default function SendScreen() {
     setRecipient('');
     setAmount('');
     setMemo('');
+    setMemoType(null);
     setStep('form');
     setHash(null);
     setError(null);
@@ -574,6 +580,15 @@ export default function SendScreen() {
           <Text style={styles.feeValue}>Sponsored</Text>
         </View>
 
+        {/* The memo is how exchange deposits get credited: show it on the
+            confirmation surface so a scanned SEP-7 memo is seen before submit (#704). */}
+        {memo ? (
+          <View style={styles.feeRow}>
+            <Text style={styles.feeLabel}>Memo</Text>
+            <Text style={styles.feeValue}>{memoType ? `${memo} (${memoType})` : memo}</Text>
+          </View>
+        ) : null}
+
         {step === 'error' && error && <Text style={styles.errorBanner}>{error}</Text>}
         {requestProblem && <Text style={styles.errorBanner} accessibilityRole="alert">{requestProblem}</Text>}
         {nonNative && (
@@ -585,16 +600,38 @@ export default function SendScreen() {
         <View style={styles.spacer} />
 
         {busy ? (
-          <View style={[styles.cta, styles.disabled]} testID="send-submit">
+          <View
+            style={[styles.cta, styles.disabled]}
+            testID="send-submit"
+            accessible={true}
+            accessibilityRole="button"
+            accessibilityState={{ disabled: true }}
+            aria-disabled={true}
+          >
             <ActivityIndicator color={colors.onAccent} />
             <Text style={styles.ctaText}>{step === 'authorizing' ? 'Waiting for passkey…' : 'Submitting…'}</Text>
           </View>
         ) : canSubmit ? (
-          <SlideToConfirm label="Slide to send" onConfirm={handleSend} />
+          <SlideToConfirm label="Slide to send" onConfirm={handleSend} testID="send-submit" />
         ) : (
-          <View style={[styles.cta, styles.disabled]} testID="send-submit">
+          <View
+            style={[styles.cta, styles.disabled]}
+            testID="send-submit"
+            accessible={true}
+            accessibilityRole="button"
+            accessibilityState={{ disabled: true }}
+            aria-disabled={true}
+          >
             <Text style={styles.ctaText}>
-              {requestProblem ? 'Choose an asset to send' : insufficient ? 'Not enough balance' : step === 'error' ? 'Try again' : 'Enter details to send'}
+              {requestProblem
+                ? 'Choose an asset to send'
+                : !selected
+                  ? 'Choose an asset to send'
+                  : insufficient
+                    ? 'Not enough balance'
+                    : step === 'error'
+                      ? 'Try again'
+                      : 'Enter details to send'}
             </Text>
           </View>
         )}
@@ -630,7 +667,36 @@ export default function SendScreen() {
         </Pressable>
       </Modal>
 
-      <QrScanner visible={scannerOpen} onScan={(address) => { setRecipient(address); setScannerOpen(false); }} onClose={() => setScannerOpen(false)} />
+      {/* Filled from a scanned SEP-7 URI: memo → the memo field, amount →
+          the amount field, and an asset only when it resolves to an exact
+          code:issuer — a scanned code alone never overrides the selection (#704/#791). */}
+      <QrScanner
+        visible={scannerOpen}
+        onScan={(address, details) => {
+          setRecipient(address);
+          if (details?.amount) setAmount(details.amount);
+          // The memo survives scan → review → submit: it lands in the same
+          // field the review row renders and `sendPayment` attaches (#704).
+          if (details?.memo) setMemo(details.memo);
+          if (details?.memoType) setMemoType(details.memoType);
+          if (details?.assetCode) {
+            const scanned = resolveRequestedAsset(
+              details.assetCode,
+              details.assetIssuer,
+              getNetworkName(),
+              holdings,
+            );
+            if (scanned.ok && scanned.asset) {
+              const held = holdings.find(
+                (h) => h.code === scanned.asset!.code && h.issuer === scanned.asset!.issuer,
+              );
+              if (held) setSelectedKey(keyOf(held));
+            }
+          }
+          setScannerOpen(false);
+        }}
+        onClose={() => setScannerOpen(false)}
+      />
       <ContactPicker visible={pickerOpen} onSelect={handleSelectContact} onClose={() => setPickerOpen(false)} />
     </SafeAreaView>
   );

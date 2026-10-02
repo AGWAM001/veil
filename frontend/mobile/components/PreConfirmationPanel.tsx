@@ -109,7 +109,7 @@ export function PreConfirmationPanel({ data, colors }: Props) {
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Round-Trip Cost (if sold immediately)</Text>
           <View style={styles.row}>
-            <Text style={styles.label}>You'd get back</Text>
+            <Text style={styles.label}>You&apos;d get back</Text>
             <Text style={styles.value}>
               {formatNumber(data.sellbackAmount, 7)} {data.tokenIn}
             </Text>
@@ -127,7 +127,7 @@ export function PreConfirmationPanel({ data, colors }: Props) {
             </Text>
           </View>
           <Text style={styles.disclaimer}>
-            This shows what you'd receive if you sold the output immediately at the current market price.
+            This shows what you&apos;d receive if you sold the output immediately at the current market price.
             Actual results depend on market conditions at execution time.
           </Text>
         </View>

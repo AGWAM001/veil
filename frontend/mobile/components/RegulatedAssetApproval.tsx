@@ -190,14 +190,14 @@ export function RegulatedAssetApproval({
                 </Pressable>
 
                 <Text style={styles.hint}>
-                  You'll be taken to {asset.issuerName || 'the issuer'}'s verification page.
+                  You&apos;ll be taken to {asset.issuerName || 'the issuer'}&apos;s verification page.
                 </Text>
 
                 <Pressable
                   style={[styles.secondaryBtn, { marginTop: 12 }]}
                   onPress={handleRetryAfterAction}
                 >
-                  <Text style={styles.secondaryText}>I've Completed Verification</Text>
+                  <Text style={styles.secondaryText}>I&apos;ve Completed Verification</Text>
                 </Pressable>
               </View>
             </View>
