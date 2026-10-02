@@ -1,12 +1,20 @@
 /**
- * The V141 benchmark — is native proving actually faster on this device?
+ * The benchmark harness — is native proving actually faster on this device?
  *
- * The acceptance test for the native module is a measurement: prove the V141
- * benchmark transaction natively, prove the same transaction through the
- * WebView/WASM path, and compare. This module holds everything about that
- * comparison that can be unit-tested without a device — the fixture
- * transaction bytes, the timing rules, and the decision — so the screen in
+ * The acceptance test for the native module is a measurement: prove one
+ * fixture transaction natively, prove the same one through the WebView/WASM
+ * path, and compare. This module holds everything about that comparison that
+ * can be unit-tested without a device — the fixture transaction bytes, the
+ * timing rules, and the decision — so the screen in
  * `app/privacy/benchmark.tsx` only wires state to UI.
+ *
+ * It is not the #720 spike in `lib/prover/`, which models expected native
+ * timings to inform the build/no-build decision. This one calls the real
+ * module, and therefore reports a failed native run today: `prove` is not
+ * wired upstream-to-verifier yet (see `modules/spp-native/README.md`). A
+ * failed sample is a sample with `ok: false`, and `compareSamples` refuses to
+ * turn one into a speedup — so the screen shows the failure rather than a
+ * number.
  *
  * The WASM side is invoked through the same worker page the web wallet uses;
  * if it is not reachable (no WebView bundle in this build, or the flag that
@@ -47,12 +55,12 @@ export type SppBenchmarkComparison = {
   nativeFaster: boolean;
 };
 
-// ── The V141 fixture ────────────────────────────────────────────────────────
+// ── The benchmark fixture ───────────────────────────────────────────────────
 //
-// Fixed bytes on both sides of the bridge: the native prover's Rust tests use
-// the identical transaction, so the benchmark compares paths on the same
-// graph, and a parity check (native proof verifies against the WASM path's
-// public inputs) can be added without new plumbing.
+// Fixed bytes, so two runs of the benchmark are comparable and a later parity
+// check (native proof verifying against the WASM path's public inputs) needs no
+// new plumbing. These are synthetic note material, not a real pool state: the
+// fixture exists to be timed, never to be submitted.
 
 const BENCH_NOTE_KEY = new Uint8Array(32).fill(0x11);
 const BENCH_RHO = new Uint8Array(32).fill(0x22);
@@ -61,7 +69,7 @@ const BENCH_CHANGE_COMMITMENT = new Uint8Array(32).fill(0x44);
 /** Placeholder recipient — the benchmark never submits to the chain. */
 const BENCH_RECIPIENT = 'C'.repeat(56);
 
-/** The V141 benchmark transaction and its inputs, as the prover wants them. */
+/** The benchmark transaction and its inputs, as the bridge wants them. */
 export function buildBenchmarkRequest(): SppProveRequest {
   const amount = 50_000_000; // 5 XLM in stroops
   const payment = 30_000_000;
@@ -72,7 +80,10 @@ export function buildBenchmarkRequest(): SppProveRequest {
     rho: BENCH_RHO,
     amount,
     asset: 'XLM',
-    // SHA-256(note_key ‖ rho ‖ amount_le ‖ "XLM") — matches the Rust fixture.
+    // Fixed synthetic bytes. Nothing here is a real note: the commitment rule
+    // left with the retired local circuit, so this value is neither derived
+    // nor checked anywhere. Regenerate the fixture from SPP's own commitment
+    // when the canonical witness lands.
     commitment: new Uint8Array([
       0x2f, 0x8c, 0x4b, 0x5e, 0xf1, 0x9d, 0x8a, 0x37, 0xc6, 0x50, 0xe4, 0x2b,
       0x71, 0x09, 0xdd, 0x83, 0xae, 0x1f, 0x62, 0x47, 0xb8, 0x05, 0x93, 0x6c,
@@ -80,9 +91,9 @@ export function buildBenchmarkRequest(): SppProveRequest {
     ]),
   };
 
-  // A fixed 32-level path against an all-zero sibling tree, as in the Rust
-  // test. The anchor below is the root that path computes from the fixture
-  // commitment — checked against the Rust fixture in the test suite.
+  // A fixed 32-level path against an all-zero sibling tree, with an anchor
+  // that is a stand-in root rather than the root this path computes — same
+  // caveat as the commitment above.
   const path: SppMerklePath = {
     depth: 32,
     siblings: Array.from({ length: 32 }, () => new Uint8Array(32)),

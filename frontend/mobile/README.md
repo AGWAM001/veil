@@ -161,26 +161,31 @@ submitted. Dismissing the prompt is a decline, not an error. A transaction sourc
 from any account other than this wallet's fee payer is refused before the prompt
 is ever raised.
 
-## SPP native prover
+## SPP native module
 
-`modules/spp-native/` is the V141 native path: SPP's Rust prover (arkworks,
-Groth16 over BLS12-381) exposed to JS through uniffi and an Expo Android
-module. Proving runs parallel on-device, which is the point — the WASM path
-in a WebView is single-threaded and slower on the same hardware. See the
-module's own [README](modules/spp-native/README.md) for the build wiring.
+`modules/spp-native/` is the native boundary to Nethermind/SDF's
+`stellar-private-payments` SDK: SPP's note model, transaction graph and sync
+state, exposed to JS through uniffi and an Expo Android module. **Proving is
+not wired through it yet** — `prove`/`verify` fail closed until callers send
+the SDK's own `TransactParams` witness and the pool's published circuit
+artifacts reach its `CircuitStore` on the device. Veil owns no SPP circuit,
+setup or verifier, so that is a prerequisite, not a TODO. The module's own
+[README](modules/spp-native/README.md) has the build wiring and the full
+blocker list.
 
 The app treats the module as optional everywhere. `lib/sppProver.ts` loads
 it with `requireOptionalNativeModule` and returns typed `E_UNAVAILABLE`
 errors when the binary does not carry it, so a build without the module
 still launches — the same contract the background task follows with
-`expo-background-task`. Screens that need proving check
-`isSppNativeAvailable()` first and fall back to the WASM path otherwise.
+`expo-background-task`. Screens that need a proof still use the WASM path,
+and `lib/privacy.ts` keeps refusing to shield, send or unshield with
+`ENGINE_PENDING_MESSAGE`.
 
-The V141 benchmark lives at `/privacy/benchmark` (from Settings → Privacy):
-it proves the fixture transaction natively on-device and shows the timing,
-which is the input to the native-vs-WASM decision record. The fixture is
-duplicated in `rust/spp-prover/src/tests.rs` and `lib/sppBenchmark.ts` so
-both layers exercise identical bytes, and the test suites keep them honest.
+`/privacy/benchmark` (from Settings → Privacy) calls the real module and times
+whatever it returns, which today is the `prover` refusal. That is the input
+the native-vs-WASM decision record still needs; the fixture lives in
+`lib/sppBenchmark.ts` alone, since the Rust-side twin left with the deleted
+local circuit.
 
 ## Branded assets
 

@@ -2,12 +2,17 @@
 //!
 //! This crate is the native half of `frontend/mobile/modules/spp-native`:
 //! SPP's transaction graph (`payload.rs`), the note model and Merkle path
-//! (`notes.rs`), and a Groth16 circuit over BLS12-381 (`circuit.rs`) proven
-//! with arkworks, matching the proof system the web build compiles to WASM.
+//! (`notes.rs`), the sync state machine (`state.rs`), and the boundary to the
+//! upstream `stellar-private-payments` SDK (`spp_adapter.rs`).
 //!
-//! The proving key is produced from the V142 circuit parameters at build
-//! time, so nothing is downloaded at runtime — the whole artifact ships in
-//! the APK, and proving runs entirely on-device.
+//! Proving is not implemented here, deliberately: `prove` and `verify` fail
+//! closed. Veil owns no SPP circuit, trusted setup or verifier, so a proof this
+//! crate made from its own shapes would not be accepted by the deployed
+//! verifier. `spp_adapter` documents what has to land first. Everything either
+//! side of that boundary — the note model, the transaction graph, the sync
+//! state machine — is plain, ZK-free code, and it is what the shipped bridge
+//! compiles into. It is not unit-tested here: the crate's tests exercised the
+//! deleted local circuit.
 //!
 //! The bridge returns *outcome* records (`ProveOutcome`, …) rather than
 //! raising errors: uniffi's UDL error enums cannot carry payloads, and the
@@ -37,24 +42,25 @@ pub use payload::{Input, Output, SppTransaction};
 /// build if the UDL and this struct drift.
 #[derive(Debug, Clone)]
 pub struct ProveRequest {
-    /// The SPP transaction being proven (V141 shape).
+    /// The SPP transaction to prove (the legacy Veil shape — see
+    /// `spp_adapter`, which rejects it until callers send SPP's witness).
     pub transaction: payload::SppTransaction,
-    /// The wallet's spend notes, in the order the circuit expects.
+    /// The wallet's spend notes, in the order the proof's inputs appear.
     pub notes: Vec<notes::SpendNote>,
     /// Merkle authentication paths for each input note.
     pub merkle_paths: Vec<notes::MerklePath>,
     /// The note the change output creates, for the commitment check.
     pub change_note: notes::OutputNote,
-    /// Circuit-wide randomness. Fresh per proof, never reused.
+    /// Randomness for the commitments. Fresh per proof, never reused.
     pub blinding: Vec<u8>,
 }
 
 /// The proof and the public inputs the verifier will re-derive on-chain.
 #[derive(Debug, Clone)]
 pub struct ProveResult {
-    /// Serialised Groth16 proof (arkworks' canonical byte encoding).
+    /// The serialised proof, in the format SPP's SDK emits.
     pub proof: Vec<u8>,
-    /// Public inputs, encoded in the order the circuit declares them.
+    /// Public inputs, in the order SPP's verifier expects them.
     pub public_inputs: Vec<u8>,
     /// Milliseconds the proof took, measured inside Rust. The JS layer
     /// measures wall-clock separately so the two can be compared.
@@ -127,9 +133,9 @@ pub struct SyncCheckpoint {
 
 /// Prove one SPP transaction.
 ///
-/// Runs on a thread the Kotlin side chooses; arkworks proving is CPU-bound
-/// and blocking, so this is called from a background dispatcher, never the
-/// JS thread.
+/// Fails closed today; see `spp_adapter`. Runs on a thread the Kotlin side
+/// chooses: proving is CPU-bound and blocking, so it is called from a
+/// background dispatcher, never the JS thread.
 pub fn prove(request: ProveRequest) -> ProveOutcome {
     spp_adapter::prove(request)
 }

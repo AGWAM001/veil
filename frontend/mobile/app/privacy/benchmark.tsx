@@ -15,13 +15,15 @@ import {
 import { isSppNativeAvailable, proveTransaction } from '../../lib/sppProver';
 
 /**
- * The V141 benchmark screen.
+ * The native prover benchmark screen.
  *
- * Proves the benchmark transaction on this device — natively when the
- * binary carries the module — and shows the timing, so the native-vs-WASM
- * decision record is backed by an on-device measurement anyone can repeat
- * by opening this screen. Nothing is submitted to the chain: the fixture
- * transaction is never signed into a real payment.
+ * Wires the fixture transaction to the native module and times whatever
+ * happens, so the native-vs-WASM decision record is backed by an on-device
+ * measurement anyone can repeat by opening this screen. Today that
+ * measurement is a refusal: proving is not wired to SPP's SDK yet, so a run
+ * reports the prover's error rather than a duration (see
+ * `modules/spp-native/README.md`). Nothing is submitted to the chain either
+ * way — the fixture is never signed into a real payment.
  *
  * Reached from Settings → Privacy; hidden entirely when the native module
  * is absent, since a screen that can only ever say "unavailable" is noise
@@ -65,8 +67,10 @@ export default function SppBenchmarkScreen() {
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <Text style={styles.title}>Prover benchmark</Text>
         <Text style={styles.body}>
-          Runs the V141 benchmark transaction through the native prover and
-          times it. Nothing is sent to the network.
+          Runs the fixture transaction through the native prover and times it.
+          Proving is not wired to SPP&apos;s SDK yet, so a run reports the
+          module&apos;s error instead of a duration. Nothing is sent to the
+          network.
         </Text>
 
         {!available && (

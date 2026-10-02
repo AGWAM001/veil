@@ -1,14 +1,17 @@
-//! SPP's transaction graph — the V141 payload shape.
+//! The transaction graph the bridge carries — Veil's own record model.
 //!
-//! A private transfer spends notes, produces outputs, and commits to the
+//! A private transfer spends notes, produces outputs, and refers to the
 //! note-commitment tree. The amounts are U64 (Stellar's stroop-scale
-//! integers) and the anchors are the Merkle root the inputs were spent
-//! against — the same fields the Soroban verifier contract re-derives.
+//! integers) and the anchor is the Merkle root the inputs were spent
+//! against. Whether these fields line up with what SPP's canonical witness
+//! requires is an open question, not an established one: `spp_adapter` refuses
+//! to prove this shape until that mapping is written against the SDK.
 
 use std::fmt;
 
-/// One input being consumed: a nullifier (the note, revealed) and the Merkle
-/// path that proves it existed at `anchor`.
+/// One input being consumed: the nullifier it reveals (unique per note,
+/// prevents double-spend) and the leaf it sat at. The authentication path for
+/// it is `MerklePath` in `notes.rs`, passed alongside in `ProveRequest`.
 #[derive(Debug, Clone)]
 pub struct Input {
     /// 32-byte nullifier — unique per note, prevents double-spend.
@@ -31,7 +34,7 @@ pub struct Output {
     pub recipient: String,
 }
 
-/// The V141 SPP transaction.
+/// The transaction shape the Veil bridge carries across the FFI boundary.
 #[derive(Debug, Clone)]
 pub struct SppTransaction {
     /// Merkle root the input notes existed at. Zeroed for a pure mint.
@@ -47,9 +50,10 @@ pub struct SppTransaction {
 }
 
 impl SppTransaction {
-    /// Structural checks the circuit relies on. Called from `prove` so a
-    /// malformed transaction fails fast with a readable error rather than
-    /// deep inside constraint generation.
+    /// Structural checks a witness builder would need: a malformed transaction
+    /// should fail with a readable error rather than deep inside constraint
+    /// generation. Nothing calls it yet — `prove` fails closed in
+    /// `spp_adapter` before reaching this.
     pub fn validate(&self) -> Result<(), String> {
         if self.anchor.len() != 32 {
             return Err(format!(

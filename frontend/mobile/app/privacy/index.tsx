@@ -10,7 +10,7 @@ import { fontFamily } from '../../theme/typography';
  * The privacy section's landing screen.
  *
  * V131 gates the private-balance surfaces elsewhere; this screen is the
- * developer-facing entry into what exists so far — the V141 benchmark —
+ * developer-facing entry into what exists so far — the prover benchmark —
  * reached from Settings → Privacy. It grows as V142/V143 land (shield,
  * private send, unshield).
  */
@@ -31,7 +31,8 @@ export default function PrivacyIndexScreen() {
           <Card style={styles.card}>
             <Text style={styles.itemTitle}>Prover benchmark</Text>
             <Text style={styles.itemBody}>
-              Time the V141 transaction through the native prover on this device.
+              Run the benchmark transaction against the native module on this
+              device and record what it returns.
             </Text>
           </Card>
         </Pressable>

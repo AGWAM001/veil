@@ -28,7 +28,12 @@ export type SppOutput = {
   recipient: string;
 };
 
-/** The V141 transaction shape the native prover accepts. */
+/**
+ * The Veil-side transaction shape the bridge carries. Note that `prove`
+ * rejects it: canonical SPP proving needs the SDK's own witness, so this
+ * record crosses the bridge for the note/sync paths and is refused by the
+ * prover. See `modules/spp-native/README.md`.
+ */
 export type SppTransaction = {
   anchor: Uint8Array;
   inputs: SppInput[];

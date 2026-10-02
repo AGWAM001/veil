@@ -3,7 +3,7 @@ name = "spp-prover"
 version = "0.1.0"
 edition = "2021"
 license = "MIT"
-description = "SPP note-format prover for the Veil mobile wallet (Android, via uniffi)"
+description = "SPP note format and the native SDK boundary for the Veil mobile wallet (Android, via uniffi)"
 
 [lib]
 name = "spp_prover"

@@ -1,10 +1,13 @@
 /**
- * The SPP native prover — JS surface for `modules/spp-native`.
+ * The SPP native module — JS surface for `modules/spp-native`.
  *
- * The Rust crate proves SPP transactions with arkworks (Groth16, BLS12-381),
- * which is faster than the WASM path because it runs parallel on-device
- * instead of single-threaded in a WebView. This module is how JS reaches it:
- * an Expo native module, loaded defensively, that works or says so.
+ * The bridge is real: an Expo native module, loaded defensively, that carries
+ * the note model and sync state across the uniffi boundary with typed error
+ * codes. Proving through it is not wired yet — `prove` and `verify` fail
+ * closed with code `prover` until callers send SPP's own witness and the
+ * pool's circuit artifacts reach the SDK (the module README explains what is
+ * blocking it). Nothing here pretends a proof happened; callers that need one
+ * use the WASM path until this one does.
  *
  * Two rules shape everything here:
  *
@@ -16,10 +19,11 @@
  *    at import time is a crash on launch for everyone on the old binary.
  *
  * 2. Errors cross the bridge with codes. The Kotlin module rejects promises
- *    with the Rust outcome's category code (`invalid_transaction`,
- *    `invalid_note`, `prover`, `invalid_sync`) or `E_BAD_REQUEST` for a
- *    malformed call; this layer rethrows typed errors so screens branch on
- *    `error.code` instead of parsing messages.
+ *    with the Rust outcome's category code (`prover`, `invalid_sync`) or
+ *    `E_BAD_REQUEST` for a malformed call; this layer adds `E_UNAVAILABLE`
+ *    and rethrows typed errors so screens branch on `error.code` instead of
+ *    parsing messages. Codes are treated as opaque: a new one on the Rust
+ *    side reaches a screen without this file changing.
  */
 
 import {
@@ -51,9 +55,8 @@ export function isSppNativeAvailable(): boolean {
 
 /** Why a prover call failed. `code` mirrors the Kotlin rejection codes. */
 export class SppProverError extends Error {
-  /** One of the Rust outcome categories (`invalid_transaction`,
-   * `invalid_note`, `prover`, `invalid_sync`), `E_BAD_REQUEST` for a
-   * malformed call, or `E_UNAVAILABLE` when the module is not in this
+  /** The Rust outcome category (`prover`, `invalid_sync`), `E_BAD_REQUEST`
+   * for a malformed call, or `E_UNAVAILABLE` when the module is not in this
    * binary. */
   readonly code: string;
 
@@ -89,6 +92,10 @@ function toTypedError(err: unknown): SppProverError {
 /**
  * Prove one SPP transaction natively.
  *
+ * Rejects with code `prover` today: the native crate carries the bridge, not a
+ * wired proving path (see `modules/spp-native/README.md`). Callers must treat
+ * that as "no proof" and use the WASM path, not as a transient failure to retry.
+ *
  * Throws {@link SppProverError} with code `E_UNAVAILABLE` when the binary
  * does not carry the module — callers that want the WASM fallback should
  * check {@link isSppNativeAvailable} first, or catch that code.
@@ -102,7 +109,9 @@ export async function proveTransaction(request: SppProveRequest): Promise<SppPro
 }
 
 /**
- * Verify a native proof. Cheap; used to sanity-check before submission.
+ * Verify a proof natively. Also unwired: rejects with `prover`, because a
+ * proof Veil cannot check against the canonical pool's verifier is not worth
+ * a green tick.
  */
 export async function verifyProof(proof: Uint8Array, publicInputs: Uint8Array): Promise<boolean> {
   try {

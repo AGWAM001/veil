@@ -115,7 +115,10 @@ describe('describeBenchmark', () => {
 });
 
 describe('buildBenchmarkRequest', () => {
-  it('builds a structurally valid V141 transaction', () => {
+  // Structure only: field counts, amount conservation, 32-byte widths. The
+  // fixture's commitments and root are synthetic (see `sppBenchmark.ts`), so
+  // nothing here claims they satisfy SPP's real note rules.
+  it('builds a structurally valid fixture transaction', () => {
     const request = buildBenchmarkRequest();
     expect(request.transaction.inputs).toHaveLength(1);
     expect(request.transaction.outputs).toHaveLength(2);
@@ -127,7 +130,7 @@ describe('buildBenchmarkRequest', () => {
     expect(request.transaction.inputs[0].nullifier).toHaveLength(32);
     expect(request.notes[0].commitment).toHaveLength(32);
     expect(request.blinding).toHaveLength(32);
-    // The 32-level path matches the Rust fixture's tree shape.
+    // One uniform 32-level path: depth, siblings and index bits agree.
     expect(request.merklePaths[0].depth).toBe(32);
     expect(request.merklePaths[0].siblings).toHaveLength(32);
     expect(request.merklePaths[0].indexBits).toHaveLength(32);
