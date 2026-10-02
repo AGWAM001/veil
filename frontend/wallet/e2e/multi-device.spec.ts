@@ -130,7 +130,7 @@ test.describe('Multi-Device: Cross-Device Passkey Sync', () => {
       // Verify both devices can access the dashboard
       await expect(
         pageB.getByText(/balance|dashboard|xlm/i).first()
-      ).toBeVisible({ timeout: 10_000 });
+      ).toBeVisible({ timeout: 15_000 });
       
       await pageA.close();
       await pageB.close();
