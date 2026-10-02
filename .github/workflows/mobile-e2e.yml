@@ -46,16 +46,17 @@ jobs:
       # 'tools'"); it defaults to `platform-tools` instead.
       - uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd # v4.0.4
 
-      # The spp-native module's Gradle graph compiles the Rust prover per ABI
+      # The spp-native module's Gradle graph compiles the Rust crate per ABI
       # with cargo-ndk and generates uniffi bindings from a host build. Without
       # a toolchain, gradle silently skips those tasks (by design, so bare
       # `gradle` runs work without Rust) and CI would never exercise the
       # module — the emulator would test the WASM fallback and pass. The
       # toolchain itself and the android targets come from dtolnay/rust-toolchain
       # (host compiler) and the module's postinstall hook (targets + cargo-ndk);
-      # rust-cache keeps the prover's build artifacts between runs.
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
+      # rust-cache keeps the crate's build artifacts between runs. Pinned to a
+      # commit like every other action here (#773).
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: frontend/mobile/modules/spp-native/rust
 
