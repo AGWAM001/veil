@@ -96,9 +96,10 @@ test.describe('Happy Path: Register → Fund → Send', () => {
     await amountInput.first().fill('1');
     
     // Step 7: Submit the send transaction. The form is two-step —
-    // "Review" opens the confirmation card, "Confirm & sign" submits it.
+    // "Review & sign with passkey" opens the confirmation card,
+    // "Confirm & sign" submits it.
     await page.waitForLoadState('networkidle');
-    const reviewButton = page.getByRole('button', { name: /^review$/i });
+    const reviewButton = page.getByRole('button', { name: /review & sign/i });
     await expect(reviewButton).toBeEnabled({ timeout: 15_000 });
     await reviewButton.click();
 
@@ -219,12 +220,9 @@ test.describe('Happy Path: Register → Fund → Send', () => {
     await page.getByLabel(/amount/i).first().fill('1000000'); // Unrealistic amount
 
     // Submit — review, then confirm
-    await page.waitForFunction(() => {
-      const btns = Array.from(document.querySelectorAll('button'));
-      const btn = btns.find(b => b.textContent && b.textContent.trim().toLowerCase() === 'review');
-      return btn && !btn.disabled;
-    }, { timeout: 15_000 });
-    await page.getByRole('button', { name: /^review$/i }).click();
+    const reviewAndSign = page.getByRole('button', { name: /review & sign/i });
+    await expect(reviewAndSign).toBeEnabled({ timeout: 15_000 });
+    await reviewAndSign.click();
     await page.getByRole('button', { name: /confirm.*sign/i }).click();
 
     // Verify error message appears

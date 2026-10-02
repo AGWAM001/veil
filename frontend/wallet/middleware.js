@@ -29,6 +29,12 @@ export function middleware(request) {
     [
       "connect-src",
       "'self'",
+      // Deliberately an allowlist and never a bare `https:`. The signer secret
+      // lives in sessionStorage, so an open connect-src is exactly the
+      // exfiltration path the rest of this policy exists to close (#705,
+      // audit H1). Issuer stellar.toml reads need domains that cannot be known
+      // in advance and belong behind a server-side proxy, the way
+      // lib/issuerLogoProxy.ts already does it for logos.
       "https://horizon-testnet.stellar.org",
       "https://horizon.stellar.org",
       "https://soroban-testnet.stellar.org",
