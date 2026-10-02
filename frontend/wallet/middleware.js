@@ -29,6 +29,7 @@ export function middleware(request) {
     [
       "connect-src",
       "'self'",
+      "https:",
       "https://horizon-testnet.stellar.org",
       "https://horizon.stellar.org",
       "https://soroban-testnet.stellar.org",

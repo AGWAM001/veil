@@ -132,6 +132,7 @@ export default function AssetsPage() {
       const rawBalances = account.balances as unknown as HorizonBalanceLike[]
       setBalances(rawBalances)
       setSpendableXlm(spendableNativeXlm(account as unknown as HorizonAccountLike))
+      setLoading(false)
 
       const parsedLines = parseTrustlines(rawBalances)
       const priceMap: Record<string, number | null> = {}

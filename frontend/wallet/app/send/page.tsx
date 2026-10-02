@@ -691,6 +691,7 @@ export default function SendPage() {
                 className="btn-gold"
                 onClick={() => setStep('confirm')}
                 disabled={!validateForm()}
+                aria-label="Review"
               >
                 Review &amp; sign with passkey
               </button>
