@@ -69,7 +69,8 @@ import type {
  *   DOM events, so a modal that mounts after the request still sees it.
  */
 
-const SESSION_STORAGE_KEY = 'veil_walletconnect_sessions';
+/** AsyncStorage key holding negotiated WalletConnect sessions. Wallet-derived: cleared on reset. */
+export const WALLETCONNECT_SESSIONS_KEY = 'veil_walletconnect_sessions';
 
 /** Assertion produced by the device passkey over a Soroban auth-entry hash. */
 export type WebAuthnSignature = {
@@ -140,7 +141,7 @@ function getChainId(): string {
 
 async function loadStoredSessions(): Promise<WalletConnectSession[]> {
   try {
-    const raw = await AsyncStorage.getItem(SESSION_STORAGE_KEY);
+    const raw = await AsyncStorage.getItem(WALLETCONNECT_SESSIONS_KEY);
     if (!raw) return [];
     const parsed: unknown = JSON.parse(raw);
     return Array.isArray(parsed) ? (parsed as WalletConnectSession[]) : [];
@@ -151,7 +152,7 @@ async function loadStoredSessions(): Promise<WalletConnectSession[]> {
 
 async function persistSessions(sessions: WalletConnectSession[]): Promise<void> {
   try {
-    await AsyncStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(sessions));
+    await AsyncStorage.setItem(WALLETCONNECT_SESSIONS_KEY, JSON.stringify(sessions));
   } catch (error) {
     console.warn('[walletConnect] failed to persist sessions', error);
   }

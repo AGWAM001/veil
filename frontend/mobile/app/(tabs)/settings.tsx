@@ -17,7 +17,7 @@ import {
 } from '../../lib/network';
 import { ConfirmModal } from '../../components/ConfirmModal';
 import { NoticeModal } from '../../components/NoticeModal';
-import { getWalletAddress, hasUsableWallet, clearWalletStore } from '../../lib/walletStore';
+import { getWalletAddress, hasUsableWallet } from '../../lib/walletStore';
 import { getFeePayerAddress } from '../../lib/activity';
 import { fundWithFriendbot } from '../../lib/testnetWallet';
 import {
@@ -88,6 +88,11 @@ export default function SettingsScreen() {
     { key: 'lock', title: 'Security & lock', subtitle: 'Auto-lock after inactivity', onPress: () => router.push('/settings/security') },
     { key: 'privacy', title: 'Privacy', subtitle: 'Private payments and crash reporting', onPress: () => router.push('/settings/privacy') },
     { key: 'dapps', title: 'Connected dApps', subtitle: 'Sites with permission, and revoke them', onPress: () => router.push('/settings/permissions') },
+    // Reset lives on its own screen now, reachable on BOTH networks. It used to
+    // sit in the testnet-only Developer group, which left a mainnet user (real
+    // funds) with no supported way to start over. The danger screen owns the
+    // typed confirmation and the backup-first path.
+    { key: 'danger', title: 'Danger zone', subtitle: 'Reset this device’s wallet', onPress: () => router.push('/settings/danger') },
   ];
 
   // Live notification preferences.
@@ -230,17 +235,6 @@ export default function SettingsScreen() {
     });
   };
 
-  // ConfirmModal, not Alert.alert — the component exists precisely to keep a
-  // decision inside Veil's visual language, and it can style a destructive
-  // action as destructive, which the platform dialog cannot.
-  const [resetOpen, setResetOpen] = useState(false);
-  const resetWallet = () => setResetOpen(true);
-  const confirmReset = async () => {
-    setResetOpen(false);
-    await clearWalletStore();
-    router.replace('/welcome');
-  };
-
   const developer: Row[] = [
     // Endpoints, factory contract and per-network config warnings. Diagnostic
     // rather than everyday: the Mainnet switch above is how you actually change
@@ -254,14 +248,6 @@ export default function SettingsScreen() {
         : 'Unavailable on mainnet — Friendbot is testnet only',
       value: 'Testnet',
       onPress: fundTestXlm,
-    },
-    {
-      key: 'reset',
-      title: 'Reset wallet',
-      subtitle: onTestnet
-        ? 'Clear the testnet wallet and start fresh'
-        : 'Clear the MAINNET wallet — real funds',
-      onPress: resetWallet,
     },
   ];
 
@@ -403,27 +389,6 @@ export default function SettingsScreen() {
         message={notice?.message ?? ''}
         tone={notice?.tone ?? 'neutral'}
         onClose={() => setNotice(null)}
-      />
-
-      {/*
-        Names the network it is about to wipe. The copy used to say "testnet"
-        unconditionally, so on mainnet it reassured the user while clearing a
-        real-funds key — the worst direction for a destructive prompt to be
-        wrong in.
-      */}
-      <ConfirmModal
-        isOpen={resetOpen}
-        destructive
-        title={onTestnet ? 'Reset testnet wallet?' : 'Reset your MAINNET wallet?'}
-        message={
-          onTestnet
-            ? "Removes this device's testnet wallet key so you can create a fresh one. Your mainnet wallet is not affected."
-            : 'Removes this device’s MAINNET wallet key. This wallet holds REAL funds, and without a backup they become unreachable. Back up your secret first.'
-        }
-        confirmLabel={onTestnet ? 'Reset' : 'Reset mainnet wallet'}
-        cancelLabel="Cancel"
-        onConfirm={confirmReset}
-        onCancel={() => setResetOpen(false)}
       />
 
       <ConfirmModal
