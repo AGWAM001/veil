@@ -5,6 +5,7 @@
   "scripts": {
     "smoke": "npx ts-node scripts/smoke_test.ts",
     "test:usdy": "node scripts/test-usdy-explainer.mjs",
+    "test:privacy:guide": "node scripts/privacy-guide.test.mjs",
     "release-notes": "conventional-changelog -p angular -i CHANGELOG.md -s",
     "changeset": "changeset",
     "version-packages": "changeset version && node scripts/sync-package-lockfiles.mjs",
