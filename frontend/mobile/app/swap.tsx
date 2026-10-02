@@ -32,7 +32,7 @@ type Step = 'form' | 'signing' | 'submitting' | 'done' | 'error';
 const TOKENS: Token[] = [
   { code: 'XLM', name: 'Stellar Lumens' },
   { code: 'USDC', name: 'USD Coin' },
-  { code: 'EURC', name: 'Euro Coin' },
+
   { code: 'AQUA', name: 'Aquarius' },
 ];
 
