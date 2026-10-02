@@ -3,7 +3,8 @@
 import { TransactionBuilder, hash } from '@stellar/stellar-sdk'
 import { ensureFeePayer } from '@/lib/feePayer'
 import { getNetwork } from '@/lib/network'
-import { getSppConfig } from './config'
+import { getConfiguredBootnodeUrl, getSppConfig } from './config'
+import { resolveBootnodeWithFallback } from './bootnode'
 
 export type PrivacyStatus = 'idle' | 'syncing' | 'ready' | 'error'
 
@@ -104,7 +105,12 @@ async function initClient(): Promise<PrivacyClient> {
     storage,
     contractConfig: getContractConfig(sppConfig),
     circuitsBaseUrl: `${window.location.origin}/spp/circuits/`,
-    bootnodeUrl: sppConfig.bootnodeUrl,
+    // Probe Veil's own archive and fall back to Nethermind's when it is
+    // unreachable (#719). Resolving here rather than trusting the static
+    // config is what makes the BootnodeBanner's claim true: the banner
+    // reports the outcome of this same cached probe, so without it the
+    // UI could say "using Nethermind" while the client used a dead URL.
+    bootnodeUrl: await resolveBootnodeWithFallback(getConfiguredBootnodeUrl()),
   })
 
   const signer = await getSigner()
