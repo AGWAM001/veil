@@ -375,7 +375,7 @@ export default function PrivateSendPage() {
                   if (val.trim().length >= 50) {
                     void checkRegistry(val.trim())
                   } else {
-                    setLookupState({ loading: false, checked: false, result: null })
+                    setLookupState({ loading: false, checked: false, result: null, error: null })
                   }
                 }}
                 onBlur={() => {
