@@ -1,5 +1,21 @@
 import { NextResponse } from "next/server";
 
+/**
+ * Origins the wallet reads a SEP-1 `stellar.toml` from.
+ *
+ * Every toml read goes through `loadRegisteredIssuerMetadata`, which refuses
+ * any issuer outside `lib/assets.ts`'s ASSET_REGISTRY and then resolves that
+ * issuer's own `homeDomain` — so the set of domains is finite and known ahead
+ * of time. Listed literally rather than imported because middleware runs in the
+ * edge runtime and should not pull the asset registry (and the SDK types behind
+ * it) into that bundle; `lib/__tests__/csp.test.ts` asserts the two stay in
+ * step, which is what a comment alone cannot do.
+ */
+const REGISTERED_ISSUER_ORIGINS = [
+  "https://ondo.finance",
+  "https://circle.com",
+];
+
 const configuredOrigins = [
   process.env.NEXT_PUBLIC_HORIZON_URL,
   process.env.NEXT_PUBLIC_SOROBAN_RPC_URL,
@@ -32,9 +48,7 @@ export function middleware(request) {
       // Deliberately an allowlist and never a bare `https:`. The signer secret
       // lives in sessionStorage, so an open connect-src is exactly the
       // exfiltration path the rest of this policy exists to close (#705,
-      // audit H1). Issuer stellar.toml reads need domains that cannot be known
-      // in advance and belong behind a server-side proxy, the way
-      // lib/issuerLogoProxy.ts already does it for logos.
+      // audit H1).
       "https://horizon-testnet.stellar.org",
       "https://horizon.stellar.org",
       "https://soroban-testnet.stellar.org",
@@ -46,6 +60,13 @@ export function middleware(request) {
       "https://raw.githubusercontent.com",
       "https://relay.walletconnect.com",
       "wss://relay.walletconnect.com",
+      // SEP-1 reads. `loadRegisteredIssuerMetadata` only ever resolves the
+      // `homeDomain` of an issuer already in ASSET_REGISTRY, so this set is
+      // closed and known at build time — it is not an excuse for a bare
+      // `https:`. Keep it in step with lib/assets.ts; lib/__tests__/csp.test.ts
+      // fails if a registered homeDomain is missing here, because the symptom
+      // otherwise is silently missing issuer names rather than an error.
+      ...REGISTERED_ISSUER_ORIGINS,
       ...origins,
     ].join(" "),
     "worker-src 'self' blob:",
