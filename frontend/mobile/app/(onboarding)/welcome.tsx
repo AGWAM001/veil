@@ -101,7 +101,6 @@ export default function Welcome() {
           accessibilityRole="button"
           testID="welcome-recover"
           style={({ pressed }) => [styles.recoverBtn, pressed && styles.pressed]}
-          testID="welcome-recover"
         >
           <Text style={styles.recoverLabel}>I already have a wallet</Text>
         </Pressable>

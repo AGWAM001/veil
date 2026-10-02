@@ -25,8 +25,6 @@ version: 2
 secret_scans:
   ignored_paths:
     - examples/sveltekit/src/lib/network.ts
-    - frontend/mobile/lib/privacy/**
-    - frontend/wallet/lib/privacy/**
     - frontend/mobile/lib/privacy/config.ts
     - frontend/mobile/lib/privacy/__tests__/config.test.ts
     - frontend/wallet/lib/privacy/config.ts

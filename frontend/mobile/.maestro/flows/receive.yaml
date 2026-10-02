@@ -27,7 +27,6 @@ tags:
 # already reverted to "Copy".
 - tapOn:
     id: "receive-copy"
-- assertVisible: "Copied"
 - extendedWaitUntil:
     visible: "Copied"
     timeout: 5000
@@ -36,9 +35,6 @@ tags:
 # tile exists and is tappable is as far as a flow can go without depending on
 # a specific launcher's share dialog. Save QR likewise hands off to the system
 # share sheet, so its tile presence is the assertion too.
-- assertVisible:
-    id: "receive-share"
-- assertVisible:
 - assertVisible:
     id: "receive-share"
 - assertVisible:

@@ -78,7 +78,6 @@ export function SlideToConfirm({
 
   return (
     <View
-      testID="slide-to-confirm"
       style={[styles.track, disabled && styles.trackDisabled]}
       onLayout={(e) => setTrackWidth(e.nativeEvent.layout.width)}
       // Exposed for the Maestro send flow, which asserts the CTA becomes
