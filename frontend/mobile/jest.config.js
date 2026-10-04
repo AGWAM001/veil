@@ -8,6 +8,11 @@ const expoPreset = require('jest-expo/jest-preset');
  * `@noble/hashes`, and — since stellar-sdk 17 — `@exodus/bytes`,
  * `uint8array-extras`, and `smol-toml` ship ESM only, and Jest cannot `require`
  * them untransformed. Metro handles them natively, so this affects tests alone.
+ * `@noble/hashes` and the `@walletconnect` packages ship ESM only, and Jest
+ * cannot `require` them untransformed. Metro handles them natively, so this
+ * affects tests alone. `@walletconnect` is on the list because `walletStore`
+ * imports the WalletConnect session-key constant from its owner; that already
+ * loads `lib/polyfills`, so the package has to be transformable from there too.
  *
  * `setupFiles` appends `jest.setup.js` to the preset's own setup files rather
  * than replacing them, so the React Native and Expo environment stubs still
@@ -16,8 +21,12 @@ const expoPreset = require('jest-expo/jest-preset');
 module.exports = {
   ...expoPreset,
   setupFiles: [...expoPreset.setupFiles, '<rootDir>/jest.setup.js'],
+  modulePaths: ['<rootDir>/node_modules'],
   transformIgnorePatterns: expoPreset.transformIgnorePatterns.map((pattern) =>
     pattern.startsWith('/node_modules/(?!(') ? pattern.replace('(?!(', '(?!(@noble|@exodus|uint8array-extras|smol-toml|') : pattern
+    pattern.startsWith('/node_modules/(?!(')
+      ? pattern.replace('(?!(', '(?!(@noble|@walletconnect|')
+      : pattern
   ),
   moduleNameMapper: {
     ...(expoPreset.moduleNameMapper ?? {}),

@@ -39,6 +39,7 @@ const fontVars = [
 ].join(" ");
 import { InstallBanner } from "./InstallBanner";
 import { SentryInit } from "./SentryInit";
+import { BootnodeBanner } from "./BootnodeBanner";
 
 export const metadata: Metadata = {
   // Absolute URLs for og:image and friends. Never derived from the deployment:
@@ -107,6 +108,7 @@ export default async function RootLayout({
       </head>
       <body>
         {children}
+        <BootnodeBanner />
         <InstallBanner />
         <SentryInit />
       </body>

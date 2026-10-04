@@ -19,6 +19,7 @@ export default {
   voice: 'Voice & Assistants',
   security: 'Security',
   'threat-model': 'Threat Model',
+  privacy: 'What "Private" Means',
   papers: {
     title: 'Research',
     type: 'separator',

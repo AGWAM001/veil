@@ -13,6 +13,8 @@ import { SlideToConfirm } from '../components/SlideToConfirm';
 import { SwapVerticalIcon } from '../components/icons';
 import { TokenIcon } from '../components/TokenIcon';
 import { SuccessAnimation } from '../components/SuccessAnimation';
+import { enhanceQuoteWithSpread, type HonestSwapQuote } from '../lib/soroswapEnhanced';
+import { PreConfirmationPanel } from '../components/PreConfirmationPanel';
 import { getSoroswapQuote, buildSoroswapSwapXdr, ensureSwapOutTrustline, type SwapQuote } from '../lib/soroswap';
 import { getSdexQuote, sdexSwap } from '../lib/sdexSwap';
 import {
@@ -38,7 +40,7 @@ import { loadHoldings, type Holding } from '../lib/holdings';
 
 /** A swappable asset: a registry-checked code:issuer (issuer null = XLM). */
 type Token = SwapAsset & { name: string };
-type Step = 'form' | 'signing' | 'submitting' | 'done' | 'error';
+type Step = 'form' | 'review' | 'signing' | 'submitting' | 'done' | 'error';
 
 /**
  * The tokens on offer, built from the verified registry for the network — XLM
@@ -56,6 +58,7 @@ function tokensFor(network: NetworkName): Token[] {
 
 const SLIPPAGE_BPS = 50; // 0.5 %
 const DEBOUNCE_MS = 600;
+const PRICE_IMPACT_THRESHOLD_PCT = 5.0; // Refuse orders exceeding 5% total impact
 
 export default function SwapScreen() {
   const { colors, isDark } = useTheme();
@@ -156,6 +159,7 @@ export default function SwapScreen() {
   const fmtBal = (n: number) => n.toLocaleString('en-US', { maximumFractionDigits: 4 });
 
   const [quote, setQuote] = useState<SwapQuote | null>(null);
+  const [honestQuote, setHonestQuote] = useState<HonestSwapQuote | null>(null);
   const [isFetchingQuote, setIsFetchingQuote] = useState(false);
   const [quoteError, setQuoteError] = useState<string | null>(null);
 
@@ -249,6 +253,39 @@ export default function SwapScreen() {
     };
   }, [amountIn, tokenIn, tokenOut, networkName, onTestnet]);
 
+  // ── Spread and price-impact disclosure (#732) ──────────────────────────────
+  // Runs on both networks: the venue differs (Soroswap on mainnet, the classic
+  // DEX on testnet) but the order book is Horizon's either way. The assets go
+  // in as registry-checked code:issuer pairs, never as bare codes.
+  useEffect(() => {
+    if (!quote) {
+      setHonestQuote(null);
+      return;
+    }
+
+    let alive = true;
+    (async () => {
+      const parsed = parseFloat(amountIn);
+      try {
+        const enhanced = await enhanceQuoteWithSpread(
+          quote,
+          tokenIn,
+          tokenOut,
+          parsed,
+          PRICE_IMPACT_THRESHOLD_PCT,
+        );
+        if (alive) setHonestQuote(enhanced);
+      } catch {
+        // Leave it null rather than casting the bare quote to a HonestSwapQuote:
+        // that would render a review screen whose impact figures read as
+        // measured when nothing was measured. The review screen handles null by
+        // saying the disclosure is unavailable.
+        if (alive) setHonestQuote(null);
+      }
+    })();
+    return () => { alive = false; };
+  }, [quote, tokenIn, tokenOut, amountIn]);
+
   /**
    * Make sure the spending account can cover an XLM swap, moving the shortfall
    * out of the smart wallet when it cannot.
@@ -293,9 +330,22 @@ export default function SwapScreen() {
     setContractXlm(Math.max(0, inContract - Number(move)));
   }
 
-  // ── Execution — unchanged engine ───────────────────────────────────────────
+  // ── Execution — with the impact threshold enforced ─────────────────────────
   async function handleExecute() {
     setExecError(null);
+
+    // Last line of defence: the review screen hides the confirm control for a
+    // refused order, but the threshold is re-checked here so no other entry
+    // point can get past it.
+    if (honestQuote?.shouldRefuse) {
+      setExecError(
+        honestQuote.refusalReason ??
+          'This order exceeds the price-impact threshold, so it was not submitted.',
+      );
+      setStep('error');
+      return;
+    }
+
     setStep('signing');
     try {
       const parsed = parseFloat(amountIn);
@@ -446,6 +496,7 @@ export default function SwapScreen() {
     }
     setPicker(null);
     setQuote(null);
+    setHonestQuote(null);
     setQuoteError(null);
   }
 
@@ -453,6 +504,7 @@ export default function SwapScreen() {
     setTokenIn(tokenOut);
     setTokenOut(tokenIn);
     setQuote(null);
+    setHonestQuote(null);
     setQuoteError(null);
   }
 
@@ -481,6 +533,69 @@ export default function SwapScreen() {
   // total — which sums the smart wallet as well — reported more locked than the
   // account even holds.
   const lockedXlm = feePayerXlm ? Math.max(0, feePayerXlm.balance - feePayerXlm.spendable) : null;
+
+  // ── Review screen with honest spread and impact ─────────────────────────────
+  if (step === 'review' && quote) {
+    const amountOut = Number(quote.amountOut) / 1e7;
+    const paid = Number(amountIn);
+    const currentRate = paid > 0 ? amountOut / paid : 0;
+    const analysis = honestQuote?.impactAnalysis ?? null;
+    return (
+      <SafeAreaView style={styles.screen} edges={['top', 'bottom']} testID="swap-review-screen">
+        <View style={styles.body}>
+          <FlowHeader 
+            title="Review Swap" 
+            onBack={() => { setStep('form'); }} 
+          />
+          
+          <View style={styles.reviewContent}>
+            <PreConfirmationPanel
+              data={{
+                tokenIn: tokenIn.code,
+                tokenOut: tokenOut.code,
+                amountIn: Number(amountIn),
+                amountOut,
+                rate: currentRate,
+                // The quote's own price impact is always real. The spread and
+                // the total are null unless they were actually measured, so the
+                // panel shows "Not measured" rather than a confident 0.00%.
+                priceImpactPct: analysis?.priceImpactPct ?? quote.priceImpact * 100,
+                spreadPct: analysis?.spreadPct ?? null,
+                totalImpactPct: analysis?.totalImpactPct ?? null,
+                disclosure:
+                  analysis?.disclosure ??
+                  (honestQuote
+                    ? null
+                    : 'The bid-ask spread could not be checked for this pair, so the total cost is not shown.'),
+                bestBid: honestQuote?.spread?.bestBid,
+                bestAsk: honestQuote?.spread?.bestAsk,
+                sellbackAmount: honestQuote?.reverseQuote?.sellbackAmount,
+                spreadLossPct: honestQuote?.reverseQuote?.spreadLossPct,
+                roundTripImpactPct: honestQuote?.reverseQuote?.roundTripImpactPct,
+              }}
+              colors={colors}
+            />
+          </View>
+
+          <View style={styles.spacer} />
+
+          {honestQuote?.shouldRefuse ? (
+            <View>
+              <Text style={styles.refusalBanner}>{honestQuote.refusalReason}</Text>
+              <Pressable
+                style={[styles.primaryBtn, styles.disabled]}
+                onPress={() => setStep('form')}
+              >
+                <Text style={styles.primaryText}>Back to form</Text>
+              </Pressable>
+            </View>
+          ) : (
+            <SlideToConfirm label="Slide to confirm swap" onConfirm={handleExecute} />
+          )}
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   // ── Done / status ──────────────────────────────────────────────────────────
   if (step === 'done') {
@@ -613,7 +728,12 @@ export default function SwapScreen() {
             <Text style={styles.statusText}>{step === 'signing' ? 'Waiting for passkey…' : 'Submitting swap…'}</Text>
           </View>
         ) : canReview ? (
-          <SlideToConfirm label="Slide to swap" onConfirm={handleExecute} />
+          <Pressable
+            style={styles.primaryBtn}
+            onPress={() => setStep('review')}
+          >
+            <Text style={styles.primaryText}>Review swap</Text>
+          </Pressable>
         ) : (
           <View style={[styles.primaryBtn, styles.disabled]}>
             <Text style={styles.primaryText}>{hasAmount ? 'Fetching quote…' : 'Enter an amount'}</Text>
@@ -774,4 +894,14 @@ const createStyles = (colors: ThemeColors) =>
     sheetTitle: { color: colors.textFaint, fontFamily: fontFamily.bodySemiBold, fontSize: 11, letterSpacing: 1.2, textTransform: 'uppercase', marginBottom: 8 },
     sheetRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 12 },
     sheetName: { color: colors.textPrimary, fontFamily: fontFamily.body, fontSize: 15 },
+    reviewContent: { flex: 1, marginTop: 12 },
+    refusalBanner: {
+      color: colors.danger,
+      fontFamily: fontFamily.body,
+      fontSize: 13,
+      backgroundColor: colors.dangerSurface,
+      borderRadius: 10,
+      padding: 12,
+      marginBottom: 16,
+    },
   });
