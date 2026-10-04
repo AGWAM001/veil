@@ -20,15 +20,15 @@ const expoPreset = require('jest-expo/jest-preset');
  */
 module.exports = {
   ...expoPreset,
-  transformIgnorePatterns: [
-    '/node_modules/(?!(@exodus/bytes|@noble|uint8array-extras|.pnpm|react-native|@react-native|@react-native-community|expo|@expo|@expo-google-fonts|react-navigation|@react-navigation|@sentry/react-native|native-base))',
-    '/node_modules/react-native-reanimated/plugin/',
-  ],
   setupFiles: [...expoPreset.setupFiles, '<rootDir>/jest.setup.js'],
   modulePaths: ['<rootDir>/node_modules'],
+  // One key, seeded from the preset's own patterns so it stays in sync. This
+  // object literal previously set `transformIgnorePatterns` twice, and the later
+  // entry silently discarded the earlier allow-list — leaving the ESM-only
+  // packages `@stellar/stellar-sdk` 17 requires untransformed.
   transformIgnorePatterns: expoPreset.transformIgnorePatterns.map((pattern) =>
     pattern.startsWith('/node_modules/(?!(')
-      ? pattern.replace('(?!(', '(?!(@noble|@walletconnect|')
+      ? pattern.replace('(?!(', '(?!(@exodus/bytes|@noble|uint8array-extras|@walletconnect|')
       : pattern
   ),
   moduleNameMapper: {
