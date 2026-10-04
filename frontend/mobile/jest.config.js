@@ -7,6 +7,12 @@ const expoPreset = require('jest-expo/jest-preset');
  * environment. The only change is the transform allow-list: several dependencies
  * ship ESM only, and Jest cannot `require` them untransformed.
  * Metro handles them natively, so this affects tests alone.
+ * environment. The only change is the transform allow-list: `@noble/ciphers`,
+ * `@noble/hashes` and the `@walletconnect` packages ship ESM only, and Jest
+ * cannot `require` them untransformed. Metro handles them natively, so this
+ * affects tests alone. `@walletconnect` is on the list because `walletStore`
+ * imports the WalletConnect session-key constant from its owner; that already
+ * loads `lib/polyfills`, so the package has to be transformable from there too.
  *
  * `setupFiles` appends `jest.setup.js` to the preset's own setup files rather
  * than replacing them, so the React Native and Expo environment stubs still
@@ -19,8 +25,11 @@ module.exports = {
     '/node_modules/react-native-reanimated/plugin/',
   ],
   setupFiles: [...expoPreset.setupFiles, '<rootDir>/jest.setup.js'],
+  modulePaths: ['<rootDir>/node_modules'],
   transformIgnorePatterns: expoPreset.transformIgnorePatterns.map((pattern) =>
-    pattern.startsWith('/node_modules/(?!(') ? pattern.replace('(?!(', '(?!(@noble|') : pattern
+    pattern.startsWith('/node_modules/(?!(')
+      ? pattern.replace('(?!(', '(?!(@noble|@walletconnect|')
+      : pattern
   ),
   moduleNameMapper: {
     ...(expoPreset.moduleNameMapper ?? {}),
