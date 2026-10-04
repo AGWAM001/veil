@@ -19,7 +19,6 @@ import {
 } from '@stellar/stellar-sdk';
 import { Core } from '@walletconnect/core';
 import { getSdkError } from '@walletconnect/utils';
-import { Web3Wallet, type IWeb3Wallet } from '@walletconnect/web3wallet';
 import { WalletKit, type IWalletKit } from '@reown/walletkit';
 import { Buffer } from 'buffer';
 import * as Crypto from 'expo-crypto';
