@@ -50,7 +50,8 @@ jest.mock('@react-native-async-storage/async-storage', () => ({
 import { Keypair } from '@stellar/stellar-sdk';
 import { Buffer } from 'buffer';
 
-import { createPasskeyWallet } from '../passkeyWallet';
+import { createPasskeyWallet, type PasskeyWalletResult } from '../passkeyWallet';
+import type { CreatedWallet } from '../testnetWallet';
 import { deriveFeePayerKeypair } from '../deriveFeePayer';
 
 const CREDENTIAL_ID = 'QUJDRA'; // base64url, arbitrary but valid
@@ -67,12 +68,24 @@ beforeEach(() => {
   mockWriteBreadcrumbs.mockResolvedValue(undefined);
 });
 
+/**
+ * The wallet behind a `createPasskeyWallet` result.
+ *
+ * It returns a union now: `{ status: 'created', wallet }` when PRF produced a
+ * fee payer, or `{ status: 'unsupported', commit }` when it did not and the
+ * storage write is deferred until the user has seen the answer (#767). These
+ * assertions are about the wallet either way, so commit the deferred one.
+ */
+async function walletFrom(result: PasskeyWalletResult): Promise<CreatedWallet> {
+  return result.status === 'created' ? result.wallet : result.commit();
+}
+
 describe('createPasskeyWallet — PRF-derived fee payer (secure path)', () => {
   it('derives the fee payer from the PRF output, not the credential id (C2)', async () => {
     const prfOutput = new Uint8Array(32).fill(11);
     mockEvaluatePrf.mockResolvedValue({ outcome: 'ok', output: prfOutput });
 
-    const result = await createPasskeyWallet(registerable());
+    const result = await walletFrom(await createPasskeyWallet(registerable()));
 
     expect(result.recoverable).toBe(true);
     const expected = Keypair.fromRawEd25519Seed(Buffer.from(prfOutput)).publicKey();
@@ -117,7 +130,7 @@ describe('createPasskeyWallet — PRF unavailable (explicit degrade, not a silen
   it('creates the wallet with a random, unrecoverable key and surfaces recoverable: false', async () => {
     mockEvaluatePrf.mockResolvedValue({ outcome: 'unsupported', output: null });
 
-    const result = await createPasskeyWallet(registerable());
+    const result = await walletFrom(await createPasskeyWallet(registerable()));
 
     expect(result.recoverable).toBe(false);
     expect(result.recoveryIssue).toBe('unsupported');
@@ -142,7 +155,7 @@ describe('createPasskeyWallet — PRF unavailable (explicit degrade, not a silen
       .mockResolvedValueOnce({ outcome: 'failed', output: null })
       .mockResolvedValueOnce({ outcome: 'ok', output: new Uint8Array(32).fill(5) });
 
-    const result = await createPasskeyWallet(registerable());
+    const result = await walletFrom(await createPasskeyWallet(registerable()));
 
     expect(mockEvaluatePrf).toHaveBeenCalledTimes(2);
     expect(result.recoverable).toBe(true);
