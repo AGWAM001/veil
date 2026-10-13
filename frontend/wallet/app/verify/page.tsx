@@ -82,7 +82,11 @@ export default function VerifyPage() {
     }
   }, [])
 
-  const fullName = `${firstName} ${lastName}`.trim()
+  // Joined from the trimmed parts, not trimmed at the ends. A trailing space
+  // in the first name rendered "Sulaiman  Hussein" with a double gap on the one
+  // screen that asks someone to compare this against their NIN record, which
+  // invites them to think the spacing is the fault.
+  const fullName = [firstName, lastName].map((part) => part.trim()).filter(Boolean).join(' ')
 
   const whoReady = useMemo(
     () =>
