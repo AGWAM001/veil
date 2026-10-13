@@ -11,6 +11,7 @@ import {
   Keypair, TransactionBuilder, BASE_FEE, Asset, Operation, Memo,
   Contract, rpc as SorobanRpc, nativeToScVal, Horizon,
 } from '@stellar/stellar-sdk'
+import { fetchPlatformFee } from '@/lib/platformFee'
 import { walletLocal, walletSession } from '@/lib/walletStorage'
 const Server = Horizon.Server
 import { ContactPicker } from '@/components/ContactPicker'
@@ -367,6 +368,43 @@ export default function SendPage() {
           // without it, exchange deposits arrive uncredited.
           .addMemo(memo.trim() ? buildStellarMemo(memo, memoType) ?? Memo.none() : Memo.none())
           .setTimeout(30)
+
+        // The Veil fee, appended after the user's own payment so theirs applies
+        // first — if the balance only covers one of them, the one they asked for
+        // is the one that happens, and the whole transaction fails rather than
+        // taking a fee for a payment that did not go out.
+        //
+        // Only on this branch. The Soroban path below is a single `transfer`
+        // invocation, and a Stellar transaction may carry at most one Soroban
+        // operation, so there is nowhere to put a second payment there.
+        //
+        // Affordability is checked before the op is added rather than after the
+        // submission fails: `tx_insufficient_balance` on a send the user could
+        // afford, caused by a fee they never asked for, is the worst outcome
+        // available. Unaffordable means no fee, not a blocked payment.
+        const feeAsset = selectedAsset?.issuer ? selectedAsset.code : 'XLM'
+        const platformFee = await fetchPlatformFee(feeAsset)
+        if (platformFee) {
+          const held = account.balances.find((b) =>
+            platformFee.assetIssuer === null
+              ? b.asset_type === 'native'
+              : 'asset_code' in b
+                && b.asset_code === platformFee.assetCode
+                && 'asset_issuer' in b
+                && b.asset_issuer === platformFee.assetIssuer,
+          )
+          const available = held ? Number(held.balance) : 0
+          if (available >= Number(amount) + Number(platformFee.amount)) {
+            builder.addOperation(Operation.payment({
+              destination: platformFee.destination,
+              asset: platformFee.assetIssuer
+                ? new Asset(platformFee.assetCode, platformFee.assetIssuer)
+                : Asset.native(),
+              amount: platformFee.amount,
+            }))
+          }
+        }
+
         const tx = builder.build()
         tx.sign(feePayerKp)
         const result = await horizonServer.submitTransaction(tx)
