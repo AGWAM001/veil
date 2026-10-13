@@ -58,6 +58,13 @@ export default function VerifyPage() {
   const [busy, setBusy] = useState(false)
   const [rejection, setRejection] = useState<string | null>(null)
   const [stranded, setStranded] = useState(false)
+  /**
+   * Which call failed. Provisioning runs before the NIN is sent, so a failure
+   * there is not a NIN rejection and must not be reported as one — the number
+   * was never checked, nothing was spent, and "check your 11 digits" is advice
+   * about a step that did not happen.
+   */
+  const [failedPhase, setFailedPhase] = useState<'provision' | 'kyc'>('kyc')
   const [customerRef, setCustomerRef] = useState<string | null>(null)
 
   useEffect(() => {
@@ -91,6 +98,7 @@ export default function VerifyPage() {
     setBusy(true)
     setRejection(null)
     setStranded(false)
+    setFailedPhase('provision')
     try {
       // Ask Linq what it already thinks of this reference before spending a NIN
       // attempt on it. Provisioning is idempotent, so this is a read we were
@@ -112,6 +120,8 @@ export default function VerifyPage() {
         return
       }
 
+      // Past this line a failure is about the NIN itself.
+      setFailedPhase('kyc')
       const result = await submitKyc(customerRef, nin)
       setNin('')
       if (result.verified) {
@@ -249,7 +259,26 @@ export default function VerifyPage() {
           </Card>
         )}
 
-        {stage === 'rejected' && !stranded && (
+        {stage === 'rejected' && !stranded && failedPhase === 'provision' && (
+          <Card className="border-[rgba(220,38,38,0.35)]">
+            <p className="text-[15px] font-semibold text-off-white mb-2">
+              Couldn&apos;t set up your details
+            </p>
+            <p className="text-[13px] leading-relaxed text-white/55 mb-3">
+              This failed before your NIN was sent, so it was never checked and nothing has
+              been used up. The naira service would not accept the details on the previous
+              screen — most often the email or the phone number.
+            </p>
+            <p className="text-[13px] leading-relaxed text-white/55 mb-3">
+              Check the email is one you can receive at, and try the phone in full
+              international form, for example +2348030000000.
+            </p>
+            {rejection && <p className="text-[12px] text-white/40 mb-5">{rejection}</p>}
+            <PrimaryAction onClick={() => setStage('who')}>Edit my details</PrimaryAction>
+          </Card>
+        )}
+
+        {stage === 'rejected' && !stranded && failedPhase === 'kyc' && (
           <Card className="border-[rgba(220,38,38,0.35)]">
             <p className="text-[15px] font-semibold text-off-white mb-2">That NIN didn&apos;t verify</p>
             <p className="text-[13px] leading-relaxed text-white/55 mb-3">
