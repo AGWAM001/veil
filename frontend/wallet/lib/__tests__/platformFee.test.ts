@@ -39,6 +39,11 @@ function respondWith(body: unknown, ok = true) {
   }) as unknown as typeof fetch
 }
 
+function requestedUrl(): string {
+  const mock = global.fetch as jest.Mock
+  return String(mock.mock.calls[mock.mock.calls.length - 1][0])
+}
+
 const ENABLED = {
   enabled: true,
   fees: {
@@ -161,5 +166,34 @@ describe('fetchPlatformFee', () => {
     await fetchPlatformFee('USDC')
 
     expect(global.fetch).toHaveBeenCalledTimes(2)
+  })
+})
+
+describe('the amount being sent', () => {
+  // The server prices the fee, so it has to be told what is being sent. A flat
+  // fee was 10% of a 1 USDC send and 0.01% of a 1,000 one.
+  it('is passed to the server so the fee can scale with it', async () => {
+    respondWith(ENABLED)
+    const { fetchPlatformFee } = loadModule()
+
+    await fetchPlatformFee('USDC', 100)
+
+    expect(requestedUrl()).toContain('/fees?amount=100')
+  })
+
+  // Omitting it asks for the floor, which is what this did before it could say
+  // what was being sent.
+  it.each([
+    ['no amount', undefined],
+    ['zero', 0],
+    ['a negative amount', -5],
+    ['not a number', Number.NaN],
+  ])('asks for the floor with %s', async (_label, amount) => {
+    respondWith(ENABLED)
+    const { fetchPlatformFee } = loadModule()
+
+    await fetchPlatformFee('USDC', amount)
+
+    expect(requestedUrl()).not.toContain('?amount=')
   })
 })

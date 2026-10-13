@@ -87,13 +87,28 @@ function parseFee(raw: unknown, destination: string): PlatformFee | null {
  * Deliberately not cached: a fee held over from an earlier page load is one the
  * user was shown but never agreed to.
  */
-export async function fetchPlatformFee(assetCode: string): Promise<PlatformFee | null> {
+/**
+ * The fee for sending `amount` of `assetCode`, or null for "do not charge".
+ *
+ * `amount` is passed to the server so the fee can scale with it. A flat fee is
+ * regressive and the numbers were stark: 0.1 USDC is 10% of a 1 USDC send and
+ * 0.01% of a 1,000 one, so the people being onboarded with a thousand naira
+ * paid the heaviest rate. The policy — flat, percent, floor, cap — lives
+ * entirely on the server, so changing it again needs no new client.
+ *
+ * Omitting `amount` asks for the floor, which is what this did before it could
+ * say what was being sent.
+ */
+export async function fetchPlatformFee(assetCode: string, amount?: number): Promise<PlatformFee | null> {
   if (!BASE_URL) return null
 
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS)
   try {
-    const res = await fetch(`${BASE_URL}/fees`, { signal: controller.signal })
+    const query = amount !== undefined && Number.isFinite(amount) && amount > 0
+      ? `?amount=${encodeURIComponent(String(amount))}`
+      : ''
+    const res = await fetch(`${BASE_URL}/fees${query}`, { signal: controller.signal })
     if (!res.ok) return null
     const data = (await res.json()) as Record<string, unknown>
     if (data['enabled'] !== true) return null

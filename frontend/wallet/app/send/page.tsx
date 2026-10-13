@@ -383,7 +383,7 @@ export default function SendPage() {
         // afford, caused by a fee they never asked for, is the worst outcome
         // available. Unaffordable means no fee, not a blocked payment.
         const feeAsset = selectedAsset?.issuer ? selectedAsset.code : 'XLM'
-        const platformFee = await fetchPlatformFee(feeAsset)
+        const platformFee = await fetchPlatformFee(feeAsset, Number(amount))
         if (platformFee) {
           const held = account.balances.find((b) =>
             platformFee.assetIssuer === null
