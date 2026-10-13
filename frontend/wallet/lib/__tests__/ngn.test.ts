@@ -172,3 +172,27 @@ describe('resetNairaVerification', () => {
     expect(getCustomerRef()).toBe(ref)
   })
 })
+
+describe('getCustomerStatus', () => {
+  // The whole point: a pure read, so a page can show the truth on load without
+  // spending the one verification attempt a NIN ever gets.
+  it('asks about the reference and creates nothing', async () => {
+    respondWith({ customerRef: 'veil_etn2674mxqhk', verified: true })
+    const { getCustomerStatus } = loadModule()
+
+    await expect(getCustomerStatus('veil_etn2674mxqhk')).resolves.toMatchObject({ verified: true })
+
+    const { url, init } = lastRequest()
+    expect(url).toContain('/ngn/customers/status?customerRef=veil_etn2674mxqhk')
+    expect(init.method ?? 'GET').toBe('GET')
+  })
+
+  it('url-encodes the reference rather than pasting it in', async () => {
+    respondWith({ customerRef: 'x', verified: false })
+    const { getCustomerStatus } = loadModule()
+
+    await getCustomerStatus('veil_a b&c')
+
+    expect(lastRequest().url).toContain('veil_a%20b%26c')
+  })
+})

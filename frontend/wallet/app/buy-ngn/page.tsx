@@ -29,12 +29,14 @@ import { ensureFeePayer } from '@/lib/feePayer'
 import {
   createOnrampOrder,
   getCustomerRef,
+  getCustomerStatus,
   getOnrampRate,
   getOnrampStatus,
   isNairaKycMismatch,
   isNairaNetwork,
   isNairaVerified,
   secondsUntil,
+  setNairaVerified,
   type NairaCoin,
   type OnrampOrder,
 } from '@/lib/ngn'
@@ -65,9 +67,28 @@ export default function BuyWithNairaPage() {
   const [secondsLeft, setSecondsLeft] = useState(0)
 
   useEffect(() => {
-    setVerified(isNairaVerified())
+    const local = isNairaVerified()
+    setVerified(local)
     setMismatch(isNairaKycMismatch())
-    setCustomerRef(getCustomerRef())
+    const ref = getCustomerRef()
+    setCustomerRef(ref)
+
+    // The local flag is per browser, so someone who verified in the app looks
+    // unverified here. Linq is the authority and this read costs no
+    // verification attempt, so ask rather than send them back through a
+    // one-time check they have already passed.
+    if (!local && ref) {
+      void getCustomerStatus(ref)
+        .then((status) => {
+          if (status.verified) {
+            setNairaVerified(true)
+            setVerified(true)
+          }
+        })
+        // Unreachable or rate-limited: fall back to the local answer, which is
+        // the cautious one — it offers verification rather than hiding it.
+        .catch(() => undefined)
+    }
     // The classic G-account Linq can actually pay. `ensureFeePayer` is
     // idempotent and already runs on the dashboard, so this is usually a
     // cache read rather than a fresh ceremony.

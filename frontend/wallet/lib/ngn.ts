@@ -246,6 +246,30 @@ export function provisionCustomer(params: {
   return call<NairaCustomer>('/ngn/customers', { method: 'POST', body: params })
 }
 
+export interface CustomerStatus {
+  customerRef: string
+  verified: boolean
+  status?: string
+}
+
+/**
+ * Ask Linq whether this reference is already verified, creating nothing.
+ *
+ * The local `verified` flag is per browser, so someone who verified in the app
+ * arrives here looking unverified and is invited into a flow they have already
+ * completed — which matters more than it sounds, because a NIN verifies once
+ * ever and being asked twice looks like being asked to spend it again.
+ *
+ * This is a pure read and costs no verification attempt, so the page can ask
+ * on load and show the truth rather than the local guess. Rate-limited on
+ * wraith's side; call it once per visit, not per render.
+ */
+export function getCustomerStatus(customerRef: string): Promise<CustomerStatus> {
+  return call<CustomerStatus>(
+    `/ngn/customers/status?customerRef=${encodeURIComponent(customerRef)}`,
+  )
+}
+
 export interface KycResult {
   customerRef: string
   verified: boolean
