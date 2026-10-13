@@ -196,3 +196,65 @@ describe('getCustomerStatus', () => {
     expect(lastRequest().url).toContain('veil_a%20b%26c')
   })
 })
+
+describe('the active order survives a refresh', () => {
+  const order = {
+    orderId: 'ofr_123',
+    customerRef: 'veil_abc',
+    accountNumber: '0123456789',
+    bankName: 'Test Bank',
+    accountName: 'Veil Onramp',
+    amountNgn: 1000,
+    amountStableCoin: 0.69,
+    fee: 0,
+    expiresAt: new Date(Date.now() + 9 * 60_000).toISOString(),
+    status: 'pending',
+  }
+
+  it('comes back with the account number and the clock intact', () => {
+    const { rememberOnrampOrder, loadOnrampOrder } = loadModule()
+
+    rememberOnrampOrder(order)
+
+    // The whole order, not just the id: expiresAt is absent from the status
+    // response, and a restored screen with no countdown cannot say whether the
+    // account still accepts the payment.
+    expect(loadOnrampOrder()).toMatchObject({
+      orderId: 'ofr_123',
+      accountNumber: '0123456789',
+      expiresAt: order.expiresAt,
+    })
+  })
+
+  // Restoring a dead order is how someone pays an account that has stopped
+  // accepting it — worse than losing the order entirely.
+  it('refuses an order whose window has closed, and clears it', () => {
+    const { rememberOnrampOrder, loadOnrampOrder } = loadModule()
+
+    rememberOnrampOrder({ ...order, expiresAt: new Date(Date.now() - 1000).toISOString() })
+
+    expect(loadOnrampOrder()).toBeNull()
+    expect(localStorage.getItem('veil_ngn_active_order')).toBeNull()
+  })
+
+  it.each([
+    ['nothing stored', null],
+    ['unparseable', '{{{'],
+    ['missing an expiry', JSON.stringify({ orderId: 'x' })],
+    ['missing an id', JSON.stringify({ expiresAt: new Date(Date.now() + 60_000).toISOString() })],
+  ])('has no order when %s', (_label, raw) => {
+    const { loadOnrampOrder } = loadModule()
+    if (raw !== null) localStorage.setItem('veil_ngn_active_order', raw)
+
+    expect(loadOnrampOrder()).toBeNull()
+  })
+
+  it('is gone once forgotten', () => {
+    const { rememberOnrampOrder, forgetOnrampOrder, loadOnrampOrder } = loadModule()
+
+    rememberOnrampOrder(order)
+    forgetOnrampOrder()
+
+    expect(loadOnrampOrder()).toBeNull()
+  })
+})

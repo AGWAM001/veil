@@ -34,7 +34,10 @@ import {
   getOnrampStatus,
   isNairaKycMismatch,
   isNairaNetwork,
+  forgetOnrampOrder,
   isNairaVerified,
+  loadOnrampOrder,
+  rememberOnrampOrder,
   secondsUntil,
   setNairaVerified,
   type NairaCoin,
@@ -72,6 +75,14 @@ export default function BuyWithNairaPage() {
     setMismatch(isNairaKycMismatch())
     const ref = getCustomerRef()
     setCustomerRef(ref)
+
+    // A live order outlives this component. Someone who left for their banking
+    // app and came back has an account number to pay and a clock running on it.
+    const pending = loadOnrampOrder()
+    if (pending) {
+      setOrder(pending)
+      setStep('pay')
+    }
 
     // The local flag is per browser, so someone who verified in the app looks
     // unverified here. Linq is the authority and this read costs no
@@ -112,7 +123,13 @@ export default function BuyWithNairaPage() {
 
   useEffect(() => {
     if (!order) return
-    const tick = () => setSecondsLeft(secondsUntil(order.expiresAt))
+    const tick = () => {
+      const left = secondsUntil(order.expiresAt)
+      setSecondsLeft(left)
+      // Past the window the account stops accepting the payment, so the stored
+      // copy has to go with it — a refresh must not restore a dead order.
+      if (left <= 0) forgetOnrampOrder()
+    }
     tick()
     const id = setInterval(tick, 1000)
     return () => clearInterval(id)
@@ -125,6 +142,8 @@ export default function BuyWithNairaPage() {
       void getOnrampStatus(customerRef, order.orderId)
         .then((s) => {
           if (/complete|success|settled|paid/i.test(s.status)) {
+            // Settled: the account must not be offered again.
+            forgetOnrampOrder()
             setStep('done')
           }
         })
@@ -153,6 +172,7 @@ export default function BuyWithNairaPage() {
         rate: fresh,
         coin,
       })
+      rememberOnrampOrder(created)
       setOrder(created)
       setStep('pay')
     } catch (err) {

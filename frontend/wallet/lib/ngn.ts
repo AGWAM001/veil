@@ -337,6 +337,55 @@ export function createOnrampOrder(params: {
   return call<OnrampOrder>('/ngn/onramp/orders', { method: 'POST', body: params })
 }
 
+const ACTIVE_ORDER_KEY = 'veil_ngn_active_order'
+
+/**
+ * The order this browser is in the middle of.
+ *
+ * An order has a short deposit window and names a Nigerian account to pay. A
+ * refresh — or a tab closed on the way to a banking app, which is the normal
+ * way this is used — must not lose it, or the user is left having been told to
+ * transfer money to an account they can no longer see, with no way to find out
+ * whether it arrived. Worse, the obvious recovery is to create a second order,
+ * and then there are two live accounts and one payment.
+ *
+ * The whole order is kept rather than just its id, because `expiresAt` is not
+ * in the status response and a restored screen with no countdown cannot say
+ * the one thing that matters: whether this account still accepts the payment.
+ */
+export function rememberOnrampOrder(order: OnrampOrder): void {
+  try {
+    walletLocal.setItem(ACTIVE_ORDER_KEY, JSON.stringify(order))
+  } catch {
+    // A full or blocked store must not fail an order that already exists.
+  }
+}
+
+/**
+ * The stored order, or null when there is none, it is unreadable, or its window
+ * has closed. An expired order is cleared on the way out: showing a dead one is
+ * how someone pays an account that has stopped accepting it.
+ */
+export function loadOnrampOrder(): OnrampOrder | null {
+  const raw = walletLocal.getItem(ACTIVE_ORDER_KEY)
+  if (!raw) return null
+  try {
+    const order = JSON.parse(raw) as OnrampOrder
+    if (!order?.orderId || !order?.expiresAt) return null
+    if (secondsUntil(order.expiresAt) <= 0) {
+      forgetOnrampOrder()
+      return null
+    }
+    return order
+  } catch {
+    return null
+  }
+}
+
+export function forgetOnrampOrder(): void {
+  walletLocal.removeItem(ACTIVE_ORDER_KEY)
+}
+
 export interface OnrampStatus {
   orderId: string
   customerRef: string
