@@ -26,6 +26,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 
 import { Card, PageHeader, PrimaryAction, SectionLabel } from '@/components/ui/primitives'
+import { ninFailureFor, isNinSpent, type NinFailure } from '@/lib/ninFailure'
 import {
   getCustomerRef,
   isNairaKycMismatch,
@@ -65,6 +66,8 @@ export default function VerifyPage() {
    * about a step that did not happen.
    */
   const [failedPhase, setFailedPhase] = useState<'provision' | 'kyc'>('kyc')
+  /** What the provider's code says this failure was, when it sent one. */
+  const [failure, setFailure] = useState<NinFailure | null>(null)
   const [customerRef, setCustomerRef] = useState<string | null>(null)
 
   useEffect(() => {
@@ -82,11 +85,6 @@ export default function VerifyPage() {
     }
   }, [])
 
-  // Joined from the trimmed parts, not trimmed at the ends. A trailing space
-  // in the first name rendered "Sulaiman  Hussein" with a double gap on the one
-  // screen that asks someone to compare this against their NIN record, which
-  // invites them to think the spacing is the fault.
-  const fullName = [firstName, lastName].map((part) => part.trim()).filter(Boolean).join(' ')
 
   const whoReady = useMemo(
     () =>
@@ -102,6 +100,7 @@ export default function VerifyPage() {
     setBusy(true)
     setRejection(null)
     setStranded(false)
+    setFailure(null)
     setFailedPhase('provision')
     try {
       // Ask Linq what it already thinks of this reference before spending a NIN
@@ -142,8 +141,9 @@ export default function VerifyPage() {
       // reworded provider message must not send someone whose NIN is spent to
       // a screen about their spelling.
       const code = (err as { code?: string })?.code
+      setFailure(ninFailureFor(code))
       const spent = code
-        ? /nin_already_used|already_verified|duplicate/i.test(code)
+        ? isNinSpent(code)
         : /already|duplicate|exists|in use|verified/i.test(message)
 
       if (spent) {
@@ -284,11 +284,15 @@ export default function VerifyPage() {
 
         {stage === 'rejected' && !stranded && failedPhase === 'kyc' && (
           <Card className="border-[rgba(220,38,38,0.35)]">
-            <p className="text-[15px] font-semibold text-off-white mb-2">That NIN didn&apos;t verify</p>
+            {/* The provider's own code when it sent one, and only then a generic
+                line. Guessing is how this screen came to tell people their name
+                was wrong when the name is never checked at all. */}
+            <p className="text-[15px] font-semibold text-off-white mb-2">
+              {failure?.title ?? "That NIN didn't verify"}
+            </p>
             <p className="text-[13px] leading-relaxed text-white/55 mb-3">
-              Check the 11 digits first. If they are right, the name on your NIN record may
-              not match {fullName || 'the name you gave'} — for example a middle name, or a
-              different spelling.
+              {failure?.body
+                ?? 'Check the 11 digits against your NIN slip. Only the number is checked, so your name, its order and any middle names make no difference here.'}
             </p>
             {rejection && <p className="text-[12px] text-white/40 mb-3">{rejection}</p>}
             <p className="text-[12px] text-white/40 mb-5">
