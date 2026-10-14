@@ -139,7 +139,7 @@ export default function VerifyPage() {
       const message = err instanceof Error ? err.message : String(err)
       // The code when there is one, the prose only when there is not. A
       // reworded provider message must not send someone whose NIN is spent to
-      // a screen about their spelling.
+      // a screen about a spelling that is never checked.
       const code = (err as { code?: string })?.code
       setFailure(ninFailureFor(code))
       const spent = code
@@ -296,7 +296,7 @@ export default function VerifyPage() {
             </p>
             {rejection && <p className="text-[12px] text-white/40 mb-3">{rejection}</p>}
             <p className="text-[12px] text-white/40 mb-5">
-              Nothing was saved. Fix the number or your name and try again.
+              Nothing was saved and your NIN has not been used up.
             </p>
             <PrimaryAction onClick={() => setStage('nin')}>Try again</PrimaryAction>
             <button
