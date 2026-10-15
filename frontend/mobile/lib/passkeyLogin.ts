@@ -5,8 +5,14 @@ import { Keypair, StrKey } from '@stellar/stellar-sdk';
 import { Buffer } from 'buffer';
 
 import { recordFeePayerSource } from './feePayerSource';
-import { getNetworkName } from './network';
+import { getNetwork, getNetworkName } from './network';
 import { discoverWithPrf, nativePrfEvaluator, type DiscoveredPasskey } from './passkey';
+// TODO(#1003): remove platform limitation warning when multi-origin contract ships
+import {
+  fetchContractOrigin,
+  isWrongPlatformOrigin,
+  WRONG_PLATFORM_ERROR_MESSAGE,
+} from './platformLimitation';
 import { readSigners, WalletContractNotFoundError, type WalletSigner } from './signers';
 import { readBreadcrumbs, writeBreadcrumbs } from './walletBreadcrumbs';
 import { getSignerSecret, getWalletAddress, setPasskeyCredential, setPasskeyId, setSignerSecret, setWalletAddress } from './walletStore';
@@ -120,6 +126,13 @@ export async function loginWithPasskey(): Promise<LoginResult> {
     );
   }
 
+  // ── Verify platform compatibility ──
+  // TODO(#1003): remove platform limitation check when multi-origin contract ships
+  const contractOrigin = await fetchContractOrigin(getNetwork().rpcUrl, crumbs.walletAddress);
+  if (contractOrigin && isWrongPlatformOrigin(contractOrigin)) {
+    throw new Error(WRONG_PLATFORM_ERROR_MESSAGE);
+  }
+
   // Persist to the app's secure store…
   await Promise.all([
     setWalletAddress(crumbs.walletAddress),
@@ -189,6 +202,15 @@ export async function loginWithAddress(rawAddress: string): Promise<AddressLogin
     // The wallet exists and the user held out a passkey, but that passkey is
     // not a signer on it. Refuse and explain — no wallet state is written.
     throw new Error(SIGNER_MISMATCH_MESSAGE);
+  }
+
+  // ── Verify platform compatibility ──
+  // A wallet deployed from web carries a web origin that cannot
+  // be signed from the native app until multi-origin check_auth ships (#1003).
+  // TODO(#1003): remove platform limitation check when multi-origin contract ships
+  const contractOrigin = await fetchContractOrigin(getNetwork().rpcUrl, address);
+  if (contractOrigin && isWrongPlatformOrigin(contractOrigin)) {
+    throw new Error(WRONG_PLATFORM_ERROR_MESSAGE);
   }
 
   // Everything has been checked; only now do we adopt the wallet.
