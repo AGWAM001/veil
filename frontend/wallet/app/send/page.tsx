@@ -2,6 +2,7 @@
 
 import { useActivityFeed } from '@/lib/activityFeed'
 import { inclusionFee } from '@/lib/fees'
+import { maxSendable as libMaxSendable } from '@/lib/sendable'
 import { Nav, PageHeader } from '@/components/ui/primitives'
 import { Shield } from 'lucide-react'
 import { useState, useEffect, useRef } from 'react'
@@ -45,18 +46,22 @@ interface WalletAsset {
   contractId: string | null
   /** Decimal string from Horizon. '0' when the account could not be loaded. */
   balance: string
+  /**
+   * What the network will actually let go of: the balance less the reserve it
+   * locks. Only XLM has one, so for issued assets this equals the balance. Held
+   * separately from `balance` because both are true and the screen needs each —
+   * the balance is what the account holds, this is what it can send.
+   */
+  spendable?: string
 }
 
 function assetKey(a: WalletAsset): string {
   return a.issuer ? `${a.code}:${a.issuer}` : a.code
 }
 
-/** Spendable amount: native XLM keeps the base reserve + a fee cushion. */
+/** The page's assets carry the reserve-adjusted figure; the arithmetic lives in lib. */
 function maxSendable(asset: WalletAsset): number {
-  const bal = parseFloat(asset.balance)
-  if (!Number.isFinite(bal)) return 0
-  if (asset.code === 'XLM' && !asset.issuer) return Math.max(0, bal - 1.5)
-  return Math.max(0, bal)
+  return libMaxSendable(asset, inclusionFee())
 }
 
 /** An issuer as the review screen names it: who, when registered, then the full account. */
@@ -179,7 +184,16 @@ export default function SendPage() {
     server.loadAccount(signerPublicKey).then(account => {
       const list: WalletAsset[] = account.balances.map(b => {
         if (b.asset_type === 'native') {
-          return { code: 'XLM', issuer: null, contractId: getNativeAssetContractId(), balance: b.balance }
+          // The reserve depends on how many trustlines, offers and data entries
+          // this account holds, so it can only be known here, with the account
+          // in hand.
+          return {
+            code: 'XLM',
+            issuer: null,
+            contractId: getNativeAssetContractId(),
+            balance: b.balance,
+            spendable: spendableNativeXlm(account),
+          }
         }
         const issued = b as { asset_code: string; asset_issuer: string; balance: string }
         const asset  = new Asset(issued.asset_code, issued.asset_issuer)
@@ -558,7 +572,9 @@ export default function SendPage() {
                       <span style={{ fontSize: 15, fontWeight: 600 }}>{selectedAsset?.code ?? '—'}</span>
                       <span className="vw-meta">
                         {selectedAsset
-                          ? `${parseFloat(selectedAsset.balance).toFixed(4)} available${selectedAsset.issuer ? ` · ${shortIssuer(selectedAsset.issuer)}` : ''}`
+                          // "Available" said the balance, which for XLM is not
+                          // available: part of it is locked as the reserve.
+                          ? `${maxSendable(selectedAsset).toFixed(4)} available${selectedAsset.issuer ? ` · ${shortIssuer(selectedAsset.issuer)}` : ''}`
                           : 'Loading…'}
                       </span>
                     </span>
@@ -613,6 +629,11 @@ export default function SendPage() {
                 <div className="vw-amountfoot">
                   <span className="vw-amountbal">
                     {selectedAsset ? `Balance ${parseFloat(selectedAsset.balance).toFixed(2)} ${selectedAsset.code}` : ''}
+                    {selectedAsset && parseFloat(selectedAsset.balance) - maxSendable(selectedAsset) > 0.00001
+                      // Naming the locked part, because otherwise the two
+                      // numbers on this screen simply disagree.
+                      ? ` · ${(parseFloat(selectedAsset.balance) - maxSendable(selectedAsset)).toFixed(2)} reserved`
+                      : ''}
                   </span>
                   <span className="vw-chips">
                     {[0.25, 0.5, 0.75].map((f) => (
@@ -622,7 +643,10 @@ export default function SendPage() {
                         className="vw-amountchip"
                         onClick={() => {
                           if (!selectedAsset) return
-                          const bal = parseFloat(selectedAsset.balance)
+                          // A share of what can be sent, not a share of what
+                          // is held: 75% of a balance that is 70% reserve is a
+                          // transaction the network refuses.
+                          const bal = maxSendable(selectedAsset)
                           if (!Number.isFinite(bal)) return
                           setAmount((Math.floor(bal * f * 1e7) / 1e7).toString())
                         }}
