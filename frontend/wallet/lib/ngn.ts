@@ -58,12 +58,81 @@ export function withoutProviderName(message: string): string {
   return replaced.charAt(0).toUpperCase() + replaced.slice(1)
 }
 
+/**
+ * Statuses that mean "not yet", not "no".
+ *
+ * The backend sleeps on its hosting tier. The first request to reach an idle
+ * service gets a 503 from the edge — empty body, a fraction of a second —
+ * while the container starts. A tester hit exactly that on the rate call and
+ * was told the rails were down; they were about twenty seconds from up.
+ */
+const TRANSIENT_STATUSES = new Set([502, 503, 504])
+
+/** Backoff between attempts: long enough for a cold start, short enough that someone is still watching. */
+const RETRY_DELAYS_MS = [800, 2_000, 4_000, 8_000]
+
+/** Everything after the first attempt fits in this, so the wait is bounded. */
+const RETRY_BUDGET_MS = 25_000
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
+
+/** A waking service answers with a holding page, not JSON; parsing it throws. */
+function parseJson(text: string): Record<string, unknown> {
+  if (!text) return {}
+  try {
+    const parsed: unknown = JSON.parse(text)
+    return parsed && typeof parsed === 'object' ? (parsed as Record<string, unknown>) : {}
+  } catch {
+    return {}
+  }
+}
+
+/**
+ * Whether this request may be sent again.
+ *
+ * A GET always may. A POST may only when it carries an idempotency key — that
+ * is what makes a second send the same request rather than a second order.
+ */
+function isRepeatable(init: { method?: string; body?: unknown }): boolean {
+  const method = (init.method ?? 'GET').toUpperCase()
+  if (method === 'GET' || method === 'HEAD') return true
+  const body = init.body
+  return !!body && typeof body === 'object'
+    && typeof (body as { idempotencyKey?: unknown }).idempotencyKey === 'string'
+}
+
 async function call<T>(
   path: string,
   init: { method?: string; body?: unknown } = {},
 ): Promise<T> {
   if (!BASE_URL) throw new NairaUnavailable('No backend configured for naira rails.')
 
+  const repeatable = isRepeatable(init)
+  const startedAt = Date.now()
+
+  for (let i = 0; ; i++) {
+    try {
+      return await attempt<T>(path, init)
+    } catch (err) {
+      const transient = err instanceof NairaUnavailable
+      const delay = RETRY_DELAYS_MS[i]
+      if (
+        !repeatable
+        || !transient
+        || delay === undefined
+        || Date.now() - startedAt + delay > RETRY_BUDGET_MS
+      ) {
+        throw err
+      }
+      await sleep(delay)
+    }
+  }
+}
+
+async function attempt<T>(
+  path: string,
+  init: { method?: string; body?: unknown } = {},
+): Promise<T> {
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS)
   try {
@@ -78,11 +147,10 @@ async function call<T>(
       ...(init.body ? { body: JSON.stringify(init.body) } : {}),
     })
 
-    const text = await res.text()
-    const data = text ? JSON.parse(text) : {}
+    const data = parseJson(await res.text())
 
-    if (res.status === 503) {
-      throw new NairaUnavailable(withoutProviderName(data?.error ?? 'Naira rails unavailable'))
+    if (TRANSIENT_STATUSES.has(res.status)) {
+      throw new NairaUnavailable(withoutProviderName((data['error'] as string) ?? 'Naira rails unavailable'))
     }
     if (!res.ok) {
       // `code` is the stable half of the answer — `nin_already_used` and the
@@ -90,8 +158,8 @@ async function call<T>(
       // here and liable to be reworded by the provider, which is how someone
       // whose NIN is spent gets sent to a screen about their spelling.
       throw Object.assign(
-        new Error(withoutProviderName(data?.error ?? `Request failed (${res.status})`)),
-        typeof data?.code === 'string' && data.code ? { code: data.code as string } : {},
+        new Error(withoutProviderName((data['error'] as string) ?? `Request failed (${res.status})`)),
+        typeof data['code'] === 'string' && data['code'] ? { code: data['code'] as string } : {},
       )
     }
     return data as T
