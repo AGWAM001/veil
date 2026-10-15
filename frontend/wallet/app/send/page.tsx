@@ -25,6 +25,8 @@ import { buildStellarMemo, validateMemo } from '@/lib/sep7'
 import { getRegisteredAsset } from '@/lib/assets'
 import { buildSep7Memo, type Sep7MemoType } from '@/lib/sep7'
 import { passkeyErrorMessage } from '@/lib/passkeyAuth'
+import { horizonErrorMessage } from '@/lib/horizonError'
+import { spendableNativeXlm } from '@/lib/reserves'
 import { validateMemoText } from '@/lib/memo'
 
 import { getNativeAssetContractId, getNetwork, getNetworkName } from '@/lib/network'
@@ -393,7 +395,16 @@ export default function SendPage() {
                 && 'asset_issuer' in b
                 && b.asset_issuer === platformFee.assetIssuer,
           )
-          const available = held ? Number(held.balance) : 0
+          // XLM is not spendable down to zero: the network locks 1 XLM for the
+          // account plus 0.5 for every trustline it holds, and a transaction
+          // that would breach that is rejected outright with
+          // `tx_insufficient_balance`. Comparing against the raw balance is how
+          // a fee nobody asked for kills the payment they did — exactly what
+          // the note above says must not happen. Issued assets have no reserve,
+          // so for those the balance is the balance.
+          const available = platformFee.assetIssuer === null
+            ? Number(spendableNativeXlm(account))
+            : held ? Number(held.balance) : 0
           if (available >= Number(amount) + Number(platformFee.amount)) {
             builder.addOperation(Operation.payment({
               destination: platformFee.destination,
@@ -454,7 +465,10 @@ export default function SendPage() {
 
       setStep('done')
     } catch (err: unknown) {
-      setErrorMsg(passkeyErrorMessage(err))
+      // Horizon first: it rejects every failed transaction with a 400, so the
+      // only thing `passkeyErrorMessage` could say about one was "Request
+      // failed with status code 400". The reason is in the response body.
+      setErrorMsg(horizonErrorMessage(err) ?? passkeyErrorMessage(err))
       setStep('error')
     } finally {
       endTx()
