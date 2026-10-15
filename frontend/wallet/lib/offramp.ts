@@ -177,8 +177,26 @@ export interface CreateOrderParams {
   bankCode: string
   bankName: string
   accountName: string
+  /**
+   * The wallet placing the order. Required by the backend, which uses it as the
+   * customer reference and as proof of ownership when an idempotency key is
+   * replayed — an order can only be re-read by the wallet that created it.
+   *
+   * This was missing entirely and only `refundAddress` was sent, so every web
+   * cash-out failed validation before it reached the provider.
+   */
+  walletAddress: string
+  /** Where a failed payout returns. Optional to the backend; always sent here. */
   refundAddress: string
-  idempotencyKey?: string
+  /**
+   * Required, and required to be STABLE across retries of the same order.
+   *
+   * The backend deliberately never generates this: "regenerating it on a retry
+   * is precisely how one order becomes two, and the second one also gets paid
+   * for." A fresh key per click would defeat the whole mechanism, so the caller
+   * holds one for as long as the order details are unchanged.
+   */
+  idempotencyKey: string
 }
 
 export async function createOrder(params: CreateOrderParams): Promise<OfframpOrder> {
