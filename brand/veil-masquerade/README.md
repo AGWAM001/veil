@@ -71,6 +71,37 @@ The build refuses to treat a trait as rarity-bearing if every token's value is
 unique, because a "1 of 20" drawn from a trait that is unique by construction
 reads as significant and says nothing.
 
+## Binding Names to Figures (V274 / #1078)
+
+The first twenty names claimed through Veil get the twenty Masquerade figures in sequence:
+- Claim #1 gets Veil Masquerade #01.
+- Claim #2 gets Veil Masquerade #02.
+- ...
+- Claim #20 gets Veil Masquerade #20.
+- **The 21st claimant gets a name and no figure**, and is told so before paying.
+
+### Permanent Binding & The `Name` Trait
+When a figure is claimed:
+1. Claim order maps directly to the figure number (1..20), and this binding is **permanent** — it cannot be reassigned or transferred to another figure afterwards.
+2. The `Name` trait is recorded into the token's metadata (`traits.json` and `metadata/NN.json`) at claim time:
+   ```json
+   {
+     "trait_type": "Name",
+     "value": "alice*useveilapp.xyz"
+   }
+   ```
+3. Because every name is unique, `Name` is counted as an **identity trait** (alongside Crown and Ornament), preserving counted rarity for the shared traits (Aperture, Palette, Hem). `build-nft-metadata.mjs --check` verifies metadata consistency with the `Name` trait present.
+
+### Product Decision: Allocation of Masquerade #09
+Masquerade #09 is the only closed mask in the set (`Aperture: None`). We deliberately evaluated whether #09 should be special-cased (e.g. reserved or auctioned) or awarded to the ninth claimant.
+
+**Decision: Masquerade #09 strictly goes to the ninth claimant in sequence.**
+
+**Rationale:**
+1. The collection's value is proof of earliness: numbering 1..20 is the exact proof of being among the first twenty users.
+2. The closed mask feature emerged organically from the trait matrix rather than being artificial scarcity.
+3. Trustless first-come first-served issuance is the core promise of Veil's name claim flow; special-casing or reserving #09 would introduce administrative discretion and break the claim order invariant.
+
 ## Rights: what you can and cannot do with the current images
 
 **You can sell AI-generated art.** It is not prohibited, and Canva Pro grants

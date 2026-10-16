@@ -7,9 +7,9 @@
     "description": "Twenty cloth figures for Veil, a Stellar passkey wallet. Each is the same masquerade-inspired form — a crowned mask over layered, patterned cloth falling to an uneven hem — varied across five traits. No faces: where a figure is open, it is cloth removed rather than features drawn on.",
     "externalUrl": "https://useveilapp.xyz"
   },
-  "traitTypes": ["Crown", "Aperture", "Ornament", "Palette", "Hem"],
+  "traitTypes": ["Crown", "Aperture", "Ornament", "Palette", "Hem", "Name"],
   "$comment_traits": "Crown and Ornament are IDENTITY: near enough one per token, which is what makes each figure itself. Aperture, Palette and Hem are shared, so they are the only ones where a count means anything — a rarity line drawn from a trait that is unique by construction would read as significant and say nothing.",
-  "identityTraits": ["Crown", "Ornament"],
+  "identityTraits": ["Crown", "Ornament", "Name"],
   "rarityTraits": ["Aperture", "Palette", "Hem"],
   "tokens": [
     { "id": 1,  "crown": "Plume",          "aperture": "Twin slits",  "ornament": "Chevrons",            "palette": "Lilac",        "hem": "Beaded fringe",      "canvaMediaId": "MAHXPqo2Eyc" },
