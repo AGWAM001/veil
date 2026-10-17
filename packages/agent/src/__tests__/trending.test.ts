@@ -21,7 +21,9 @@ function scripted(turns: LlmTurn[]): LlmProvider & { results: { id: string; cont
   }
 }
 
-afterEach(() => jest.restoreAllMocks())
+afterEach(() => {
+  jest.restoreAllMocks()
+})
 
 describe('get_trending_activity', () => {
   it('labels an unknown Lens feed issuer unverified and attributes measured volume', async () => {
