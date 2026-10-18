@@ -498,6 +498,77 @@ export function getOnrampStatus(customerRef: string, orderId: string): Promise<O
   )
 }
 
+// ─── Bills ───────────────────────────────────────────────────────────────────
+
+export type BillCategory = 'airtime' | 'data' | 'electricity' | 'cabletv' | 'betting'
+
+export interface BillOrder {
+  id: string
+  customerRef: string
+  /** Where the wallet sends the crypto. Nothing is vended until it arrives. */
+  wallet: string
+  status: string
+}
+
+/**
+ * Reserve a bill and lock the rate.
+ *
+ * `refundAddress` is where the deposit goes if the biller rejects the top-up
+ * after the user has paid — a biller failing does not un-spend their XLM.
+ * It must be the classic `G…` account of a wallet the user controls.
+ */
+export function payBill(params: {
+  customerRef: string
+  billCategory: BillCategory
+  provider: string
+  /** The phone number for airtime, the meter number for electricity. */
+  customerId: string
+  amountNgn: number
+  amountStableCoin: number
+  rate: number
+  coin: NairaCoin
+  refundAddress: string
+}): Promise<BillOrder> {
+  return call<BillOrder>('/ngn/bills', { method: 'POST', body: params })
+}
+
+export interface BillStatus {
+  orderId: string
+  customerRef: string
+  status: string
+  billCategory: string
+  amountNgn: number
+  amountStableCoin: number
+  wallet: string
+  description: string
+  stale?: boolean
+}
+
+export function getBillStatus(customerRef: string, orderId: string): Promise<BillStatus> {
+  return call<BillStatus>(
+    `/ngn/bills/${encodeURIComponent(orderId)}?customerRef=${encodeURIComponent(customerRef)}`,
+  )
+}
+
+export type BillTerminalOutcome = 'done' | 'failed' | 'pending'
+
+/**
+ * Classifies a bill order status into terminal or in-flight states.
+ *
+ * The provider confirms the real success status is literally `completed`.
+ * We also recognize `complete`, `success`, and `delivered`.
+ * Failure statuses: `failed`, `refunded`, `reversed`, `cancelled`.
+ * All other / unrecognized statuses default to `pending` so requerying
+ * can settle them rather than assuming a false failure.
+ */
+export function classifyBillStatus(status: string): BillTerminalOutcome {
+  const s = status.trim().toLowerCase()
+  if (/complete|success|delivered/.test(s)) return 'done'
+  if (/fail|refund|revers|cancel/.test(s)) return 'failed'
+  return 'pending'
+}
+
+
 /** Whether the rails are open at all. USDC on purpose — the XLM rate additionally
  *  depends on a live order book, so asking for it would hide the whole naira
  *  entry point whenever pricing XLM failed. */
