@@ -45,13 +45,27 @@ async function getWalletNonce(
     return null
   }
 }
-import type { WebAuthnSignature } from '@veil/sdk'
+import {
+  createSep43Wallet,
+  signSorobanAuthEntry,
+  signMessage as sdkSignMessage,
+  type WebAuthnSignature,
+  type Sep43Wallet,
+} from '@veil/sdk'
 import { derToRawSignature, hexToUint8Array } from '@veil/utils'
 import { getNetwork } from './network'
 import { WalletNotActivatedError, getDeploymentState } from './walletDeployment'
 
 const SESSION_STORAGE_KEY = 'veil_walletconnect_sessions'
-const METHODS = ['stellar_signXDR', 'stellar_signAndSubmitXDR']
+const METHODS = [
+  'stellar_signXDR',
+  'stellar_signAndSubmitXDR',
+  'stellar_signAuthEntry',
+  'stellar_signMessage',
+  'stellar_getAccount',
+  'stellar_getAddress',
+  'stellar_getNetwork',
+]
 
 type WalletConnectPeer = {
   name?: string
@@ -372,6 +386,59 @@ async function handleSignAndSubmitXdrRequest(
   return sendResult.hash
 }
 
+export function getWalletConnectSep43Wallet(): Sep43Wallet {
+  return createSep43Wallet({
+    getAddress: async () => walletLocal.getItem('invisible_wallet_address'),
+    getNetwork: () => {
+      const net = getNetwork()
+      return {
+        network: net.name === 'mainnet' ? 'PUBLIC' : 'TESTNET',
+        networkPassphrase: net.networkPassphrase,
+        rpcUrl: net.rpcUrl,
+      }
+    },
+    signTransaction: async (xdrString) => {
+      return signXdrPayload('', 0, xdrString)
+    },
+    signAuthEntry: async (authEntryXdr, opts) => {
+      const walletAddress = walletLocal.getItem('invisible_wallet_address')
+      if (!walletAddress) throw new Error('No wallet registered')
+      const network = getNetwork()
+      const rpc = getRpcServer()
+      const latestLedger = await rpc.getLatestLedger()
+      return signSorobanAuthEntry(authEntryXdr, {
+        signerAddress: walletAddress,
+        networkPassphrase: opts?.networkPassphrase ?? network.networkPassphrase,
+        signPayload: signAuthEntry,
+        validUntilLedger: latestLedger.sequence + 100,
+        getNonce: async (contractAddress) => getWalletNonce(rpc, contractAddress, network.networkPassphrase),
+      })
+    },
+    signMessage: async (message) => {
+      const keyId = walletLocal.getItem('invisible_wallet_key_id')
+      if (!keyId) throw new Error('No passkey registered')
+      const signed = await sdkSignMessage(
+        new TextEncoder().encode(message),
+        signAuthEntry,
+        keyId
+      )
+      return JSON.stringify(signed)
+    },
+    submitTransaction: async (signedXdr) => {
+      const network = getNetwork()
+      const rpc = getRpcServer()
+      const tx = TransactionBuilder.fromXDR(signedXdr, network.networkPassphrase)
+      const res = await rpc.sendTransaction(tx)
+      if (res.status === 'ERROR') {
+        throw new Error(
+          `Transaction rejected: ${res.errorResult?.toXDR('base64') ?? 'unknown'}`
+        )
+      }
+      return res.hash
+    },
+  })
+}
+
 function dispatchWalletConnectRequest(event: any): void {
   if (typeof window === 'undefined') return
   window.dispatchEvent(
@@ -386,15 +453,17 @@ export async function handleSignXdrRequest(event: any): Promise<void> {
   const topic = event.topic
   const method = event.params?.request?.method
   const requestId = getRequestId(event)
+  const sep43Wallet = getWalletConnectSep43Wallet()
 
   try {
     if (method === 'stellar_signXDR') {
       const requestParams = event.params?.request?.params
       const xdrString = getRequestXdr(requestParams)
-      const signedXDR = await signXdrPayload(topic, requestId, xdrString)
+      const result = await sep43Wallet.signTransaction(xdrString)
+      if (result.error) throw new Error(result.error.message)
       await client.respondSessionRequest({
         topic,
-        response: buildWcResult(requestId, { signedXDR }),
+        response: buildWcResult(requestId, { signedXDR: result.signedTxXdr }),
       })
       return
     }
@@ -406,6 +475,54 @@ export async function handleSignXdrRequest(event: any): Promise<void> {
       await client.respondSessionRequest({
         topic,
         response: buildWcResult(requestId, { txHash }),
+      })
+      return
+    }
+
+    if (method === 'stellar_signAuthEntry') {
+      const requestParams = event.params?.request?.params
+      const authEntryXdr = typeof requestParams === 'string'
+        ? requestParams
+        : requestParams?.authEntry ?? requestParams?.entry ?? (Array.isArray(requestParams) ? requestParams[0] : '')
+      const result = await sep43Wallet.signAuthEntry(authEntryXdr)
+      if (result.error) throw new Error(result.error.message)
+      await client.respondSessionRequest({
+        topic,
+        response: buildWcResult(requestId, { signedAuthEntry: result.signedAuthEntry, signerAddress: result.signerAddress }),
+      })
+      return
+    }
+
+    if (method === 'stellar_signMessage') {
+      const requestParams = event.params?.request?.params
+      const message = typeof requestParams === 'string'
+        ? requestParams
+        : requestParams?.message ?? (Array.isArray(requestParams) ? requestParams[0] : '')
+      const result = await sep43Wallet.signMessage(message)
+      if (result.error) throw new Error(result.error.message)
+      await client.respondSessionRequest({
+        topic,
+        response: buildWcResult(requestId, { signedMessage: result.signedMessage, signerAddress: result.signerAddress }),
+      })
+      return
+    }
+
+    if (method === 'stellar_getAccount' || method === 'stellar_getAddress') {
+      const result = await sep43Wallet.getAddress()
+      if (result.error) throw new Error(result.error.message)
+      await client.respondSessionRequest({
+        topic,
+        response: buildWcResult(requestId, { address: result.address }),
+      })
+      return
+    }
+
+    if (method === 'stellar_getNetwork') {
+      const result = await sep43Wallet.getNetwork()
+      if (result.error) throw new Error(result.error.message)
+      await client.respondSessionRequest({
+        topic,
+        response: buildWcResult(requestId, result),
       })
       return
     }

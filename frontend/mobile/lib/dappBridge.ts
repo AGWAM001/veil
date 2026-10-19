@@ -24,7 +24,8 @@ import {
   grantOriginPermissions,
   type PermissionScope,
 } from './permissions';
-import { signXdrPayload } from './walletConnect';
+import { createSep43Wallet, type Sep43Wallet } from 'invisible-wallet-sdk';
+import { signXdrPayload, getMobileSep43Wallet } from './walletConnect';
 
 /** Thrown when a request is refused — either the user declined the prompt, or no wallet is available. */
 export class DappRequestRejected extends Error {
@@ -150,4 +151,66 @@ export async function signXdrForOrigin(
   xdrString: string
 ): Promise<string> {
   return withOriginPermission(options, () => signXdrPayload(xdrString));
+}
+
+/**
+ * Creates a SEP-43 standard wallet interface bound to an origin, gating calls
+ * through the origin's permissions in permissions.ts.
+ */
+export function createOriginSep43Wallet(options: {
+  origin: string;
+  name?: string;
+  prompt: PermissionPrompt;
+}) {
+  const baseWallet = getMobileSep43Wallet();
+  return createSep43Wallet({
+    getAddress: async () => {
+      return withOriginPermission(
+        { origin: options.origin, scope: 'address_disclosure', name: options.name, prompt: options.prompt },
+        async () => {
+          const res = await baseWallet.getAddress();
+          if (res.error) throw new Error(res.error.message);
+          return res.address ?? null;
+        }
+      );
+    },
+    getNetwork: async () => {
+      const res = await baseWallet.getNetwork();
+      if (res.error) throw new Error(res.error.message);
+      return {
+        network: res.network ?? 'TESTNET',
+        networkPassphrase: res.networkPassphrase ?? 'Test SDF Network ; September 2015',
+      };
+    },
+    signTransaction: async (xdrString, opts) => {
+      return withOriginPermission(
+        { origin: options.origin, scope: 'transaction_signing', name: options.name, prompt: options.prompt },
+        async () => {
+          const res = await baseWallet.signTransaction(xdrString, opts);
+          if (res.error) throw new Error(res.error.message);
+          return res.signedTxXdr ?? '';
+        }
+      );
+    },
+    signAuthEntry: async (authEntry, opts) => {
+      return withOriginPermission(
+        { origin: options.origin, scope: 'transaction_signing', name: options.name, prompt: options.prompt },
+        async () => {
+          const res = await baseWallet.signAuthEntry(authEntry, opts);
+          if (res.error) throw new Error(res.error.message);
+          return res.signedAuthEntry ?? '';
+        }
+      );
+    },
+    signMessage: async (message, opts) => {
+      return withOriginPermission(
+        { origin: options.origin, scope: 'transaction_signing', name: options.name, prompt: options.prompt },
+        async () => {
+          const res = await baseWallet.signMessage(message, opts);
+          if (res.error) throw new Error(res.error.message);
+          return res.signedMessage ?? '';
+        }
+      );
+    },
+  });
 }
