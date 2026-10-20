@@ -221,10 +221,12 @@ describe('asking the right question', () => {
     const { getOfframpRate } = await import('../offramp')
     const settled = settle(getOfframpRate('xlm'))
 
-    await expect(settled).resolves.toMatchObject({
-      ok: false,
-      error: expect.objectContaining({ message: /different asset/ }),
-    })
+    // Asserted on `.message` directly rather than through objectContaining:
+    // `error` is an Error, and Error.message is non-enumerable, so
+    // toMatchObject cannot see it and the match fails on a correct result.
+    const result = await settled
+    if (result.ok) throw new Error('expected the mismatched quote to be refused')
+    expect((result.error as Error).message).toMatch(/different asset/)
   })
 
   it('refuses a rate that cannot be divided by', async () => {

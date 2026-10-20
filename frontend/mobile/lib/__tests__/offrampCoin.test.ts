@@ -49,7 +49,7 @@ describe('the cash-out gate and the coin it prices', () => {
   it('asks availability of the availability endpoint, not the price endpoint', async () => {
     const paths = recordRequests({ available: true });
 
-    const { isOfframpAvailable } = await import('../offramp');
+    const { isOfframpAvailable } = (require('../offramp') as typeof import('../offramp'));
     await expect(isOfframpAvailable()).resolves.toBe(true);
 
     // A single call, and it is not /offramp/rate. Linq's rate allowance is
@@ -64,14 +64,14 @@ describe('the cash-out gate and the coin it prices', () => {
     // that is briefly missing.
     recordRequests({});
 
-    const { isOfframpAvailable } = await import('../offramp');
+    const { isOfframpAvailable } = (require('../offramp') as typeof import('../offramp'));
     await expect(isOfframpAvailable()).resolves.toBe(false);
   });
 
   it('sends the coin the screen is cashing out', async () => {
     const paths = recordRequests({ coin: 'usdc', rate: 1352.65, indicative: true });
 
-    const { getOfframpRate } = await import('../offramp');
+    const { getOfframpRate } = (require('../offramp') as typeof import('../offramp'));
     await expect(getOfframpRate('usdc')).resolves.toMatchObject({ rate: 1352.65 });
 
     expect(paths).toEqual(['/offramp/rate?coin=usdc']);
@@ -84,7 +84,7 @@ describe('the cash-out gate and the coin it prices', () => {
     // which asset it is a price for.
     recordRequests({ coin: 'usdc', rate: 1352.65, indicative: true });
 
-    const { getOfframpRate } = await import('../offramp');
+    const { getOfframpRate } = (require('../offramp') as typeof import('../offramp'));
     await expect(getOfframpRate('xlm')).rejects.toThrow(/different asset/);
   });
 
@@ -93,14 +93,14 @@ describe('the cash-out gate and the coin it prices', () => {
   it('accepts the provider\'s spelling of the coin it asked for', async () => {
     recordRequests({ coin: 'USDC', rate: 1352.65, indicative: true });
 
-    const { getOfframpRate } = await import('../offramp');
+    const { getOfframpRate } = (require('../offramp') as typeof import('../offramp'));
     await expect(getOfframpRate('usdc')).resolves.toMatchObject({ rate: 1352.65 });
   });
 
   it('refuses a rate it would have to divide by', async () => {
     recordRequests({ coin: 'usdc', rate: 0, indicative: true });
 
-    const { getOfframpRate } = await import('../offramp');
+    const { getOfframpRate } = (require('../offramp') as typeof import('../offramp'));
     await expect(getOfframpRate('usdc')).rejects.toThrow(/unusable rate/);
   });
 });
