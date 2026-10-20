@@ -56,6 +56,18 @@ function toHex(bytes: Uint8Array): string {
   return Buffer.from(bytes).toString('hex');
 }
 
+function getActiveRpcUrl(): string {
+  try {
+    if (typeof getNetwork === 'function') {
+      const net = getNetwork();
+      if (net?.rpcUrl) return net.rpcUrl;
+    }
+  } catch {
+    // fallback
+  }
+  return 'https://soroban-testnet.stellar.org';
+}
+
 /**
  * Sign in with an existing passkey.
  *
@@ -128,7 +140,7 @@ export async function loginWithPasskey(): Promise<LoginResult> {
 
   // ── Verify platform compatibility ──
   // TODO(#1003): remove platform limitation check when multi-origin contract ships
-  const contractOrigin = await fetchContractOrigin(getNetwork().rpcUrl, crumbs.walletAddress);
+  const contractOrigin = await fetchContractOrigin(getActiveRpcUrl(), crumbs.walletAddress);
   if (contractOrigin && isWrongPlatformOrigin(contractOrigin)) {
     throw new Error(WRONG_PLATFORM_ERROR_MESSAGE);
   }
@@ -208,7 +220,7 @@ export async function loginWithAddress(rawAddress: string): Promise<AddressLogin
   // A wallet deployed from web carries a web origin that cannot
   // be signed from the native app until multi-origin check_auth ships (#1003).
   // TODO(#1003): remove platform limitation check when multi-origin contract ships
-  const contractOrigin = await fetchContractOrigin(getNetwork().rpcUrl, address);
+  const contractOrigin = await fetchContractOrigin(getActiveRpcUrl(), address);
   if (contractOrigin && isWrongPlatformOrigin(contractOrigin)) {
     throw new Error(WRONG_PLATFORM_ERROR_MESSAGE);
   }
