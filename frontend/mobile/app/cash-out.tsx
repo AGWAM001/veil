@@ -31,6 +31,7 @@ import {
   rememberActiveOrder,
   rememberDepositAddress,
   verifyBankAccount,
+  type OfframpCoin,
   type OfframpOrder,
   type VerifiedBank,
 } from '../lib/offramp';
@@ -43,6 +44,16 @@ import { useWallet } from '../components/WalletProvider';
 
 /** Circle's USDC on mainnet — the only asset Linq's Stellar leg credits. */
 const USDC_MAINNET_ISSUER = 'GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN';
+
+/**
+ * The asset this screen cashes out.
+ *
+ * Named because every figure on it is naira per one unit of it: `ngn / rate` is
+ * only the right number of asset if `rate` was asked for this asset, which the
+ * backend now requires rather than guesses. A second asset here turns this into
+ * per-selection state — it must not stay a constant while two assets are offered.
+ */
+const CASH_OUT_COIN: OfframpCoin = 'usdc';
 
 /**
  * Cash out — USDC to a Nigerian bank account.
@@ -220,7 +231,7 @@ export default function CashOutScreen() {
 
   const loadRate = useCallback(() => {
     setRateState('loading');
-    getOfframpRate()
+    getOfframpRate(CASH_OUT_COIN)
       .then((r) => {
         setRate(r.rate);
         setRateState('ready');
