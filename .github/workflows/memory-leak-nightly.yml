@@ -32,6 +32,11 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # Playwright's webServer runs `next start` in CI, so it needs the
+      # production bundle before the nightly browser test starts.
+      - name: Build wallet production bundle
+        run: npm run build
+
       - name: Install Playwright browsers
         run: npx playwright install --with-deps chromium
 
