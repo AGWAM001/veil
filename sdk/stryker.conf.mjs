@@ -13,11 +13,13 @@ const config = {
   },
   jest: {
     projectType: 'custom',
-    // No configFile: this package keeps its jest config in package.json's
-    // "jest" key, and naming a jest.config.js that does not exist made the
-    // jest-runner throw MODULE_NOT_FOUND inside every sandbox before a single
-    // mutant ran (the six-for-six red streak). Left unset, the loader falls
-    // back to jest's own discovery order and finds the package.json config.
+    // This package keeps its jest config in package.json's "jest" key, and the
+    // previous value here ('jest.config.js') named a file that does not exist —
+    // the jest-runner require()d it inside every sandbox and threw
+    // MODULE_NOT_FOUND before a single mutant ran (the six-for-six red streak).
+    // The named file re-exports the package.json config with Stryker's
+    // coverage-reporting jsdom environment, which perTest analysis requires.
+    configFile: 'stryker-jest.config.cjs',
     enableFindRelatedTests: true,
   },
 };
