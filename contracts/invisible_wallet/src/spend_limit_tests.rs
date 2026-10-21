@@ -21,7 +21,13 @@ use crate::WalletError;
 /// A `transfer` context against a token contract, the shape a wallet spends
 /// through: the wallet is the `from`, the payee is the `to`, and the amount is
 /// in the token's base units.
-fn transfer_context(env: &Env, token: &Address, from: &Address, to: &Address, amount: i128) -> Context {
+fn transfer_context(
+    env: &Env,
+    token: &Address,
+    from: &Address,
+    to: &Address,
+    amount: i128,
+) -> Context {
     Context::Contract(ContractContext {
         contract: token.clone(),
         fn_name: Symbol::new(env, "transfer"),
@@ -82,10 +88,7 @@ fn a_cap_in_one_token_does_not_permit_the_same_number_in_another() {
     client.__check_auth(
         &p,
         &assertion(&env, &sk, &pub_bytes, &[1u8; 32], 0),
-        &Vec::from_array(
-            &env,
-            [transfer_context(&env, &xlm, &wallet, &payee, 100)],
-        ),
+        &Vec::from_array(&env, [transfer_context(&env, &xlm, &wallet, &payee, 100)]),
     );
 
     // The same number in a different token is refused: it is not in scope.
@@ -94,10 +97,7 @@ fn a_cap_in_one_token_does_not_permit_the_same_number_in_another() {
         client.try___check_auth(
             &p,
             &assertion(&env, &sk, &pub_bytes, &[2u8; 32], 1),
-            &Vec::from_array(
-                &env,
-                [transfer_context(&env, &usdc, &wallet, &payee, 100)],
-            ),
+            &Vec::from_array(&env, [transfer_context(&env, &usdc, &wallet, &payee, 100)],),
         ),
         Err(Ok(WalletError::SpendLimitTokenNotAllowed)),
         "a cap in XLM must not be spendable in USDC",
@@ -122,10 +122,7 @@ fn the_cap_is_still_enforced_in_the_token_it_is_denominated_in() {
         client.try___check_auth(
             &p,
             &assertion(&env, &sk, &pub_bytes, &[3u8; 32], 0),
-            &Vec::from_array(
-                &env,
-                [transfer_context(&env, &xlm, &wallet, &payee, 101)],
-            ),
+            &Vec::from_array(&env, [transfer_context(&env, &xlm, &wallet, &payee, 101)],),
         ),
         Err(Ok(WalletError::SpendLimitExceeded)),
     );
@@ -153,10 +150,7 @@ fn each_token_gets_its_own_budget() {
     client.__check_auth(
         &p,
         &assertion(&env, &sk, &pub_bytes, &[4u8; 32], 0),
-        &Vec::from_array(
-            &env,
-            [transfer_context(&env, &xlm, &wallet, &payee, 100)],
-        ),
+        &Vec::from_array(&env, [transfer_context(&env, &xlm, &wallet, &payee, 100)]),
     );
 
     // The USDC budget is untouched by that, and is enforced on its own terms.
@@ -175,10 +169,7 @@ fn each_token_gets_its_own_budget() {
         client.try___check_auth(
             &p,
             &assertion(&env, &sk, &pub_bytes, &[6u8; 32], 2),
-            &Vec::from_array(
-                &env,
-                [transfer_context(&env, &usdc, &wallet, &payee, 1)],
-            ),
+            &Vec::from_array(&env, [transfer_context(&env, &usdc, &wallet, &payee, 1)],),
         ),
         Err(Ok(WalletError::SpendLimitExceeded)),
         "the USDC budget must be exhausted by USDC spending, not by XLM spending",
@@ -208,10 +199,7 @@ fn a_scoped_key_cannot_call_the_wallet_contract() {
         client.try___check_auth(
             &p,
             &assertion(&env, &sk, &pub_bytes, &[7u8; 32], 0),
-            &Vec::from_array(
-                &env,
-                [wallet_call_context(&env, &wallet, "execute")],
-            ),
+            &Vec::from_array(&env, [wallet_call_context(&env, &wallet, "execute")],),
         ),
         Err(Ok(WalletError::SpendLimitUnsupportedCall)),
     );
@@ -303,10 +291,7 @@ fn removing_the_last_limit_frees_the_key() {
         client.try___check_auth(
             &p,
             &assertion(&env, &sk, &pub_bytes, &[10u8; 32], 0),
-            &Vec::from_array(
-                &env,
-                [transfer_context(&env, &usdc, &wallet, &payee, 1)],
-            ),
+            &Vec::from_array(&env, [transfer_context(&env, &usdc, &wallet, &payee, 1)],),
         ),
         Err(Ok(WalletError::SpendLimitTokenNotAllowed)),
     );
@@ -318,10 +303,7 @@ fn removing_the_last_limit_frees_the_key() {
     client.__check_auth(
         &p,
         &assertion(&env, &sk, &pub_bytes, &[11u8; 32], 0),
-        &Vec::from_array(
-            &env,
-            [transfer_context(&env, &usdc, &wallet, &payee, 1)],
-        ),
+        &Vec::from_array(&env, [transfer_context(&env, &usdc, &wallet, &payee, 1)]),
     );
 }
 
@@ -351,7 +333,11 @@ fn a_scoped_key_cannot_change_its_own_limits() {
             &assertion(&env, &sk, &pub_bytes, &[12u8; 32], 0),
             &Vec::from_array(
                 &env,
-                [wallet_call_context(&env, &client.address.clone(), "set_key_spend_limit")],
+                [wallet_call_context(
+                    &env,
+                    &client.address.clone(),
+                    "set_key_spend_limit"
+                )],
             ),
         ),
         Err(Ok(WalletError::SpendLimitUnsupportedCall)),

@@ -70,9 +70,9 @@ pub fn describe(
     let amount =
         i128::try_from_val(env, &args.get(amount_idx).unwrap()).map_err(|_| NotATokenCall)?;
     let payee = match payee_idx {
-        Some(i) => Some(
-            Address::try_from_val(env, &args.get(i).unwrap()).map_err(|_| NotATokenCall)?,
-        ),
+        Some(i) => {
+            Some(Address::try_from_val(env, &args.get(i).unwrap()).map_err(|_| NotATokenCall)?)
+        }
         None => None,
     };
     Ok(CallEffect { amount, payee })
@@ -101,7 +101,13 @@ mod tests {
             ],
         );
         let e = describe(&env, &symbol_short!("transfer"), &a).unwrap();
-        assert_eq!(e, CallEffect { amount: 42, payee: Some(to) });
+        assert_eq!(
+            e,
+            CallEffect {
+                amount: 42,
+                payee: Some(to)
+            }
+        );
     }
 
     #[test]
@@ -120,7 +126,13 @@ mod tests {
             ],
         );
         let e = describe(&env, &Symbol::new(&env, "transfer_from"), &a).unwrap();
-        assert_eq!(e, CallEffect { amount: 7, payee: Some(to) });
+        assert_eq!(
+            e,
+            CallEffect {
+                amount: 7,
+                payee: Some(to)
+            }
+        );
     }
 
     #[test]
@@ -139,11 +151,23 @@ mod tests {
             ],
         );
         let e = describe(&env, &symbol_short!("approve"), &approve_args).unwrap();
-        assert_eq!(e, CallEffect { amount: 9, payee: Some(spender) });
+        assert_eq!(
+            e,
+            CallEffect {
+                amount: 9,
+                payee: Some(spender)
+            }
+        );
 
         let burn_args = args(&env, &[from.into_val(&env), 5i128.into_val(&env)]);
         let e = describe(&env, &symbol_short!("burn"), &burn_args).unwrap();
-        assert_eq!(e, CallEffect { amount: 5, payee: None });
+        assert_eq!(
+            e,
+            CallEffect {
+                amount: 5,
+                payee: None
+            }
+        );
     }
 
     #[test]
@@ -168,7 +192,10 @@ mod tests {
         );
 
         // Right selector, wrong argument count.
-        let short = args(&env, &[from.clone().into_val(&env), to.clone().into_val(&env)]);
+        let short = args(
+            &env,
+            &[from.clone().into_val(&env), to.clone().into_val(&env)],
+        );
         assert_eq!(
             describe(&env, &symbol_short!("transfer"), &short),
             Err(NotATokenCall)

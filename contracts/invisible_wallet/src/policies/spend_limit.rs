@@ -64,8 +64,8 @@
 //! Each (key, token) pair rolls its own 24-hour window, independently of every
 //! other pair. Spending XLM neither exhausts nor extends the USDC budget.
 
-use soroban_sdk::{contracttype, Address, BytesN, Env, Vec};
 use crate::WalletError;
+use soroban_sdk::{contracttype, Address, BytesN, Env, Vec};
 
 /// Rolling window duration: 24 hours in seconds.
 pub const WINDOW_SECS: u64 = 86_400;
@@ -159,10 +159,12 @@ pub fn set(env: &Env, key_id: &BytesN<65>, token: &Address, cap: i128) {
 ///
 /// If that was the key's only limit, the key becomes unrestricted again.
 pub fn remove(env: &Env, key_id: &BytesN<65>, token: &Address) {
-    env.storage().persistent().remove(&SpendLimitKey::Limit(SpendLimitScope {
-        key_id: key_id.clone(),
-        token: token.clone(),
-    }));
+    env.storage()
+        .persistent()
+        .remove(&SpendLimitKey::Limit(SpendLimitScope {
+            key_id: key_id.clone(),
+            token: token.clone(),
+        }));
 
     let mut scope = tokens(env, key_id);
     if let Some(index) = scope.first_index_of(token) {
@@ -182,10 +184,12 @@ pub fn remove(env: &Env, key_id: &BytesN<65>, token: &Address) {
 /// Remove every cap for `key_id`, making it unrestricted again.
 pub fn remove_all(env: &Env, key_id: &BytesN<65>) {
     for token in tokens(env, key_id).iter() {
-        env.storage().persistent().remove(&SpendLimitKey::Limit(SpendLimitScope {
-            key_id: key_id.clone(),
-            token: token.clone(),
-        }));
+        env.storage()
+            .persistent()
+            .remove(&SpendLimitKey::Limit(SpendLimitScope {
+                key_id: key_id.clone(),
+                token: token.clone(),
+            }));
     }
     env.storage()
         .persistent()
@@ -194,10 +198,12 @@ pub fn remove_all(env: &Env, key_id: &BytesN<65>) {
 
 /// Retrieve the current spend window record for (key_id, token), if any.
 pub fn get(env: &Env, key_id: &BytesN<65>, token: &Address) -> Option<SpendWindow> {
-    env.storage().persistent().get(&SpendLimitKey::Limit(SpendLimitScope {
-        key_id: key_id.clone(),
-        token: token.clone(),
-    }))
+    env.storage()
+        .persistent()
+        .get(&SpendLimitKey::Limit(SpendLimitScope {
+            key_id: key_id.clone(),
+            token: token.clone(),
+        }))
 }
 
 /// Enforce the per-token 24-hour rolling spend window for one authorized call.
