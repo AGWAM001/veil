@@ -540,12 +540,97 @@ export interface BillStatus {
   wallet: string;
   description: string;
   stale?: boolean;
+  token?: string;
+  prepaidToken?: string;
+  units?: string;
 }
 
 export function getBillStatus(customerRef: string, orderId: string): Promise<BillStatus> {
   return call<BillStatus>(
     `/ngn/bills/${encodeURIComponent(orderId)}?customerRef=${encodeURIComponent(customerRef)}`,
   );
+}
+
+export type BillTerminalOutcome = 'done' | 'failed' | 'pending';
+
+/**
+ * Classifies a bill order status into terminal or in-flight states.
+ *
+ * Success statuses: 'complete', 'completed', 'success', 'delivered'.
+ * Failure statuses: 'failed', 'refunded', 'reversed', 'cancelled'.
+ * All other / unrecognized statuses default to 'pending' so requerying
+ * can settle them rather than assuming a false failure.
+ */
+export function classifyBillStatus(status: string): BillTerminalOutcome {
+  const s = status.trim().toLowerCase();
+  if (/complete|success|delivered/.test(s)) return 'done';
+  if (/fail|refund|revers|cancel/.test(s)) return 'failed';
+  return 'pending';
+}
+
+export interface MeterVerification {
+  valid: boolean;
+  customerName?: string;
+  accountHolderName?: string;
+  address?: string;
+  meterNumber?: string;
+  disco?: string;
+  meterType?: 'prepaid' | 'postpaid';
+  minimumAmount?: number;
+  error?: string;
+}
+
+/**
+ * Look up and verify an electricity meter before taking money.
+ *
+ * Electricity is the category where a typo costs the most: paying the wrong
+ * meter credits a stranger's electricity and there is no reversal.
+ * This verifies the meter with the distribution company (disco) and returns
+ * the customer name so the user can confirm it is theirs before any spend.
+ */
+export async function verifyMeter(params: {
+  disco: string;
+  meterNumber: string;
+  meterType?: 'prepaid' | 'postpaid';
+  customerRef?: string;
+}): Promise<MeterVerification> {
+  return call<MeterVerification>('/ngn/bills/electricity/verify', {
+    method: 'POST',
+    body: params,
+  });
+}
+
+export interface BillCustomerLookup {
+  valid: boolean;
+  customerName?: string;
+  accountHolderName?: string;
+  address?: string;
+  meterNumber?: string;
+  currentPackage?: string;
+  dueDate?: string;
+  meterType?: 'prepaid' | 'postpaid';
+  minimumAmount?: number;
+  error?: string;
+}
+
+/**
+ * Look up a bill customer / account holder before taking money.
+ *
+ * For categories that support provider lookup (electricity, cable TV, betting),
+ * returns the verified account holder's name so the user can confirm it is theirs
+ * before confirming the payment.
+ */
+export function lookupBillCustomer(params: {
+  billCategory: BillCategory | string;
+  provider: string;
+  customerId: string;
+  customerRef?: string;
+  meterType?: string;
+}): Promise<BillCustomerLookup> {
+  return call<BillCustomerLookup>('/ngn/bills/lookup', {
+    method: 'POST',
+    body: params,
+  });
 }
 
 // ─── Availability ────────────────────────────────────────────────────────────

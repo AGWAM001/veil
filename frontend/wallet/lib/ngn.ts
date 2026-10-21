@@ -542,12 +542,65 @@ export interface BillStatus {
   wallet: string
   description: string
   stale?: boolean
+  token?: string
+  prepaidToken?: string
+  units?: string
 }
 
 export function getBillStatus(customerRef: string, orderId: string): Promise<BillStatus> {
   return call<BillStatus>(
     `/ngn/bills/${encodeURIComponent(orderId)}?customerRef=${encodeURIComponent(customerRef)}`,
   )
+}
+
+export interface MeterVerification {
+  valid: boolean
+  customerName?: string
+  accountHolderName?: string
+  address?: string
+  meterNumber?: string
+  disco?: string
+  meterType?: 'prepaid' | 'postpaid'
+  minimumAmount?: number
+  error?: string
+}
+
+export async function verifyMeter(params: {
+  disco: string
+  meterNumber: string
+  meterType?: 'prepaid' | 'postpaid'
+  customerRef?: string
+}): Promise<MeterVerification> {
+  return call<MeterVerification>('/ngn/bills/electricity/verify', {
+    method: 'POST',
+    body: params,
+  })
+}
+
+export interface BillCustomerLookup {
+  valid: boolean
+  customerName?: string
+  accountHolderName?: string
+  address?: string
+  meterNumber?: string
+  currentPackage?: string
+  dueDate?: string
+  meterType?: 'prepaid' | 'postpaid'
+  minimumAmount?: number
+  error?: string
+}
+
+export function lookupBillCustomer(params: {
+  billCategory: BillCategory | string
+  provider: string
+  customerId: string
+  customerRef?: string
+  meterType?: string
+}): Promise<BillCustomerLookup> {
+  return call<BillCustomerLookup>('/ngn/bills/lookup', {
+    method: 'POST',
+    body: params,
+  })
 }
 
 export type BillTerminalOutcome = 'done' | 'failed' | 'pending'
