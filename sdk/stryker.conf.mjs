@@ -13,7 +13,11 @@ const config = {
   },
   jest: {
     projectType: 'custom',
-    configFile: 'jest.config.js',
+    // No configFile: this package keeps its jest config in package.json's
+    // "jest" key, and naming a jest.config.js that does not exist made the
+    // jest-runner throw MODULE_NOT_FOUND inside every sandbox before a single
+    // mutant ran (the six-for-six red streak). Left unset, the loader falls
+    // back to jest's own discovery order and finds the package.json config.
     enableFindRelatedTests: true,
   },
 };
