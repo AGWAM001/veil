@@ -11,12 +11,17 @@ mod storage;
 mod recovery;
 pub mod session_key;
 pub mod policies;
+pub mod sep41;
 #[cfg(test)]
 mod auth_failure_tests;
 #[cfg(test)]
 mod guardian_test;
 #[cfg(test)]
 mod batch_tests;
+#[cfg(test)]
+mod spend_limit_tests;
+#[cfg(test)]
+mod webauthn_fixture;
 use storage::{DataKey, AllowanceKey, PendingRecovery};
 
 /// Recovery timelock duration: 3 days in seconds.
@@ -78,6 +83,13 @@ pub enum WalletError {
     InvalidCeremonyType         = 26,
     // A negative transfer amount was presented against an allowance.
     NegativeAmount              = 27,
+    /// A key that has spend limits tried to move a token it has no budget
+    /// for. A limit is denominated in one token, and a scoped key may only
+    /// move the tokens it has been given a budget for.
+    SpendLimitTokenNotAllowed   = 28,
+    /// A key that has spend limits tried to make a call whose token movement
+    /// cannot be determined, so it cannot be budgeted.
+    SpendLimitUnsupportedCall   = 29,
 }
 
 #[contract]
@@ -422,18 +434,46 @@ impl InvisibleWallet {
         let origin = storage::get_origin(&env).ok_or(WalletError::OriginMismatch)?;
         auth::verify_origin(&client_data_json, &origin)?;
 
-        // Step 6 — Per-key 24-hour spend limit (if configured for this signer).
-        let total_amount: i128 = _auth_contexts.iter().fold(0i128, |acc, ctx| {
-            if let Context::Contract(c) = ctx {
-                if c.args.len() >= 3 {
-                    if let Ok(a) = i128::try_from_val(&env, &c.args.get(2).unwrap()) {
-                        return acc.saturating_add(a);
+        // Step 6 — Per-key, per-token 24-hour spend limits.
+        //
+        // A limit is denominated in one token: each (key, token) pair carries
+        // its own cap, its own running total and its own rolling window. The
+        // old shape summed every amount in the authorization whatever asset
+        // it was in, so one cap meant 100 XLM or 100 USDC depending on what
+        // moved — see `policies::spend_limit` for the full reasoning.
+        //
+        // A key with no limits at all is unrestricted and is not touched
+        // here, so no existing wallet changes behaviour.
+        if policies::spend_limit::has_limits(&env, &public_key) {
+            for context in _auth_contexts.iter() {
+                let Context::Contract(c) = context else {
+                    // A host-function context (a contract creation) moves no
+                    // token we can account for. A scoped key may not make a
+                    // call that cannot be budgeted.
+                    policies::spend_limit::enforce_unmetered(&env, &public_key)?;
+                    continue;
+                };
+
+                // The amount is read per selector: the token interface does
+                // not agree on where the amount sits — `transfer` puts it at
+                // index 2, `transfer_from` at 3, `burn` at 1. Reading a fixed
+                // index is how the old sum came to add up an `Address` to a
+                // budget.
+                let amount = match sep41::describe(&env, &c.fn_name, &c.args) {
+                    Ok(effect) => effect.amount,
+                    Err(_) => {
+                        policies::spend_limit::enforce_unmetered(&env, &public_key)?;
+                        continue;
                     }
-                }
+                };
+
+                // The contract being authorized *is* the token: for a
+                // SEP-41 transfer it is the token contract whose balance
+                // moves, and for the native asset it is the native asset
+                // contract.
+                policies::spend_limit::enforce(&env, &public_key, &c.contract, amount)?;
             }
-            acc
-        });
-        policies::spend_limit::enforce(&env, &public_key, total_amount)?;
+        }
 
         // Step 7 — Increment nonce ONLY after all checks pass.
         storage::increment_nonce(&env);
@@ -689,30 +729,79 @@ impl InvisibleWallet {
         session_key::revoke(&env, &key_id);
     }
 
-    /// Set a 24-hour rolling spend limit for a WebAuthn signer key.
+    /// Set a 24-hour rolling spend limit for a WebAuthn signer key, in one
+    /// specific token.
     ///
-    /// Once set, every `__check_auth` call using `key_id` sums all context
-    /// amounts and checks the total against `cap` within a rolling 24-hour window.
-    /// Pass `cap = 0` to block all spending. Call `remove_key_spend_limit` to
-    /// lift the restriction entirely.
+    /// The cap is denominated in `token` — the base units of that one token
+    /// contract. A cap of `100_000_000` on the native asset contract is one
+    /// XLM per 24 hours and means nothing on any other contract: the wallet
+    /// has no price oracle, so a cap cannot mean one thing in two assets.
+    ///
+    /// Each (key, token) pair has its own cap and its own rolling window.
+    /// Setting a limit on one token does not touch another token's budget.
+    ///
+    /// A key that has at least one limit is *scoped* to the tokens it has a
+    /// budget for: moving any other token is refused
+    /// (`SpendLimitTokenNotAllowed`), and so is a call whose token movement
+    /// cannot be determined (`SpendLimitUnsupportedCall`) — including a call
+    /// to this wallet contract, so a scoped key cannot add signers, rotate
+    /// keys, change limits, or reach `execute`.
+    ///
+    /// A key with no limits at all is unrestricted.
+    ///
+    /// Pass `cap = 0` to block all spending of that token. Call
+    /// `remove_key_spend_limit` to lift the restriction for that token, or
+    /// `remove_all_key_spend_limits` to lift it for every token.
+    ///
+    /// A limited key cannot manage limits — not its own, not anyone else's.
+    /// Set and remove limits from a signer that has none, which is the key
+    /// that owns the wallet.
     ///
     /// Requires wallet owner authorization.
-    pub fn set_key_spend_limit(env: Env, key_id: BytesN<65>, cap: i128) {
+    pub fn set_key_spend_limit(env: Env, key_id: BytesN<65>, token: Address, cap: i128) {
         env.current_contract_address().require_auth();
-        policies::spend_limit::set(&env, &key_id, cap);
+        policies::spend_limit::set(&env, &key_id, &token, cap);
     }
 
-    /// Remove the 24-hour spend limit for a signer key (no limit = no cap).
+    /// Remove the 24-hour spend limit for a signer key on one token.
+    ///
+    /// If it was that key's only limit, the key becomes unrestricted again.
+    ///
+    /// A limited key cannot remove limits — not its own, not anyone else's.
+    /// Remove them from a signer that has none.
     ///
     /// Requires wallet owner authorization.
-    pub fn remove_key_spend_limit(env: Env, key_id: BytesN<65>) {
+    pub fn remove_key_spend_limit(env: Env, key_id: BytesN<65>, token: Address) {
         env.current_contract_address().require_auth();
-        policies::spend_limit::remove(&env, &key_id);
+        policies::spend_limit::remove(&env, &key_id, &token);
     }
 
-    /// Get the current spend window record for a signer key, if any.
-    pub fn get_key_spend_limit(env: Env, key_id: BytesN<65>) -> Option<policies::spend_limit::SpendWindow> {
-        policies::spend_limit::get(&env, &key_id)
+    /// Remove every spend limit for a signer key, making it unrestricted
+    /// again.
+    ///
+    /// Requires wallet owner authorization.
+    pub fn remove_all_key_spend_limits(env: Env, key_id: BytesN<65>) {
+        env.current_contract_address().require_auth();
+        policies::spend_limit::remove_all(&env, &key_id);
+    }
+
+    /// Get the current spend window record for a signer key on one token, if
+    /// any.
+    pub fn get_key_spend_limit(
+        env: Env,
+        key_id: BytesN<65>,
+        token: Address,
+    ) -> Option<policies::spend_limit::SpendWindow> {
+        policies::spend_limit::get(&env, &key_id, &token)
+    }
+
+    /// The tokens a signer key has spend limits for.
+    ///
+    /// Empty means the key has no limits and is therefore unrestricted. A
+    /// non-empty list means the key is scoped: it may move those tokens and
+    /// nothing else.
+    pub fn get_key_spend_limit_tokens(env: Env, key_id: BytesN<65>) -> Vec<Address> {
+        policies::spend_limit::tokens(&env, &key_id)
     }
 
     /// Register a designated recovery key for this wallet.

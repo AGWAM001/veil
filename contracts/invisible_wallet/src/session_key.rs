@@ -1,4 +1,4 @@
-use soroban_sdk::{contracttype, Address, Bytes, BytesN, Env, Symbol, TryFromVal, Val, Vec};
+use soroban_sdk::{contracttype, Address, Bytes, BytesN, Env, Symbol, Val, Vec};
 use crate::WalletError;
 
 // Approximate seconds per Stellar ledger — used when converting a wall-clock
@@ -51,22 +51,16 @@ pub struct SessionKeyAcl {
 }
 
 /// What a call spends and who receives it, read per selector.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct CallEffect {
-    pub amount: i128,
-    /// `None` for selectors with no recipient (e.g. `burn`).
-    pub payee: Option<Address>,
-}
+///
+/// Defined once, in [`crate::sep41`], because the session-key budget and the
+/// per-key spend limit have to price the same call the same way.
+pub use crate::sep41::CallEffect;
 
 /// Reads the amount and payee out of a call's arguments using the argument
-/// layout of that specific selector (SEP-41 token interface):
+/// layout of that specific selector (SEP-41 token interface).
 ///
-/// | selector        | args                                   | amount | payee   |
-/// |-----------------|----------------------------------------|--------|---------|
-/// | `transfer`      | `(from, to, amount)`                   | 2      | `to`    |
-/// | `transfer_from` | `(spender, from, to, amount)`          | 3      | `to`    |
-/// | `approve`       | `(from, spender, amount, expiration)`  | 2      | spender |
-/// | `burn`          | `(from, amount)`                       | 1      | none    |
+/// The layout table lives in [`crate::sep41`] — see it for the per-selector
+/// argument positions.
 ///
 /// An unknown selector, a wrong argument count or an argument of the wrong type
 /// is refused with `SessionKeyAclViolation` instead of being guessed at (the
@@ -76,33 +70,7 @@ pub fn extract_call_effect(
     selector: &Symbol,
     args: &Vec<Val>,
 ) -> Result<CallEffect, WalletError> {
-    let (len, amount_idx, payee_idx): (u32, u32, Option<u32>) =
-        if *selector == Symbol::new(env, "transfer") {
-            (3, 2, Some(1))
-        } else if *selector == Symbol::new(env, "transfer_from") {
-            (4, 3, Some(2))
-        } else if *selector == Symbol::new(env, "approve") {
-            (4, 2, Some(1))
-        } else if *selector == Symbol::new(env, "burn") {
-            (2, 1, None)
-        } else {
-            return Err(WalletError::SessionKeyAclViolation);
-        };
-
-    if args.len() != len {
-        return Err(WalletError::SessionKeyAclViolation);
-    }
-
-    let amount = i128::try_from_val(env, &args.get(amount_idx).unwrap())
-        .map_err(|_| WalletError::SessionKeyAclViolation)?;
-    let payee = match payee_idx {
-        Some(i) => Some(
-            Address::try_from_val(env, &args.get(i).unwrap())
-                .map_err(|_| WalletError::SessionKeyAclViolation)?,
-        ),
-        None => None,
-    };
-    Ok(CallEffect { amount, payee })
+    crate::sep41::describe(env, selector, args).map_err(|_| WalletError::SessionKeyAclViolation)
 }
 
 #[contracttype]
