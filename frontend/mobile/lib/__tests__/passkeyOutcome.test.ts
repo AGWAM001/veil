@@ -22,15 +22,47 @@ describe('isPasskeyCancellation', () => {
     new Error('NotAllowedError: the request was denied'),
     { message: 'The operation was cancelled by the user' },
     { error: 'UserCancelled' },
-    new Error('The passkey prompt timed out'),
+    // A timeout is a cancellation only when the ceremony says so by NAME.
+    new DOMException('The operation either timed out or was not allowed.', 'NotAllowedError'),
     new Error('AbortError: the sheet was dismissed'),
-  ])('treats a dismissal or timeout as cancellation: %p', (error) => {
+  ])('treats a dismissal or the ceremony own timeout as cancellation: %p', (error) => {
     expect(isPasskeyCancellation(error)).toBe(true);
     expect(classifyPasskeyError(error)).toBe('cancelled');
   });
 
   it('does not treat a refusal as a cancellation', () => {
     expect(isPasskeyCancellation(new Error('This device does not support passkeys'))).toBe(false);
+  });
+
+  /**
+   * Money safety: a submission that times out is not a decline. The screen used
+   * to return to the form with no error, after the transaction may already have
+   * been sent, because the text contained "timeout".
+   */
+  it.each([
+    new Error('timeout of 30000ms exceeded'),
+    new Error('request timed out'),
+    new Error('Horizon request timed out after 30s'),
+  ])('never reads a non-ceremony timeout as a cancellation: %p', (error) => {
+    expect(isPasskeyCancellation(error)).toBe(false);
+    expect(classifyPasskeyError(error)).toBe('failed');
+  });
+
+  it('classifies an axios timeout as a failure and says nothing was sent', () => {
+    const error = new Error('timeout of 30000ms exceeded');
+    expect(isPasskeyCancellation(error)).toBe(false);
+    expect(classifyPasskeyError(error)).toBe('failed');
+    expect(passkeyFailureMessage(error)).toMatch(/timeout of 30000ms exceeded/);
+    expect(passkeyFailureMessage(error)).toMatch(/Nothing was sent/);
+  });
+
+  it('keeps a NotAllowedError raised by the passkey call as a cancellation', () => {
+    const error = new DOMException(
+      'The operation either timed out or was not allowed. See: https://www.w3.org/TR/webauthn-2/',
+      'NotAllowedError',
+    );
+    expect(isPasskeyCancellation(error)).toBe(true);
+    expect(classifyPasskeyError(error)).toBe('cancelled');
   });
 });
 

@@ -20,7 +20,6 @@
  */
 
 import { errorMessage } from './errorMessage';
-import { isUserRejection } from './walletConnectHelpers';
 
 export type PasskeyOutcome =
   /** The prompt was dismissed (or timed out) — the user changed their mind. */
@@ -92,10 +91,68 @@ const REFUSAL_MARKERS = [
   'nomatchingcredential',
 ] as const;
 
-/** `NotAllowedError` is a dismissal/timeout in WebAuthn, not a refusal. */
+/**
+ * The DOMException names WebAuthn uses when the user closes the sheet or lets
+ * it expire. They are the ONLY thing that makes a timeout a cancellation: the
+ * ceremony itself says so by name, not by wording.
+ */
+const CANCELLATION_ERROR_NAMES = ['notallowederror', 'aborterror'] as const;
+
+/**
+ * Words only a person's own decision produces. Deliberately excludes bare
+ * "cancel", "timeout", "timed out" and "dismiss": an aborted request or a
+ * Horizon timeout carries those too ("timeout of 30000ms exceeded"), and a
+ * failed submission read as a cancellation returns the user to the form with
+ * nothing said — possibly after the transaction already reached the network.
+ */
+const USER_DECISION_MARKERS = [
+  'user_rejected',
+  'user rejected',
+  'usercancelled',
+  'usercanceled',
+  'user_cancelled',
+  'user_canceled',
+  'user cancelled',
+  'user canceled',
+  'cancelled by the user',
+  'canceled by the user',
+] as const;
+
+/** The DOMException name a thrown value carries, including native object rejections. */
+function ceremonyErrorName(error: unknown): string {
+  if (typeof error === 'object' && error !== null) {
+    const name = (error as { name?: unknown }).name;
+    if (typeof name === 'string' && name.trim() !== '') return name.trim();
+    // react-native-passkeys rejects with `{ error: 'NotAllowedError' }`.
+    const field = (error as { error?: unknown }).error;
+    if (typeof field === 'string' && field.trim() !== '') return field.trim();
+  }
+  return '';
+}
+
+/**
+ * Whether a thrown value is the user's own decision to cancel the passkey
+ * ceremony — a dismissal, a closed sheet, or the ceremony's own timeout.
+ *
+ * Only two things count: a `PasskeyCeremonyError` whose outcome is
+ * `cancelled`, or a DOMException named `NotAllowedError` / `AbortError`. A
+ * plain error whose text merely mentions a timeout is a failure, because a
+ * network or RPC timeout during submission is exactly that.
+ */
 export function isPasskeyCancellation(error: unknown): boolean {
   if (error instanceof PasskeyCeremonyError) return error.outcome === 'cancelled';
-  return isUserRejection(error);
+
+  const name = ceremonyErrorName(error).toLowerCase();
+  if (CANCELLATION_ERROR_NAMES.some((candidate) => name === candidate)) return true;
+
+  // Native modules prefix the DOMException name to their message:
+  // "NotAllowedError: the request was denied".
+  const text = errorMessage(error).trim().toLowerCase();
+  if (CANCELLATION_ERROR_NAMES.some((candidate) => text === candidate || text.startsWith(`${candidate}:`))) {
+    return true;
+  }
+
+  return USER_DECISION_MARKERS.some((marker) => text.includes(marker));
 }
 
 /** The outcome of a thrown ceremony error, without changing its message. */

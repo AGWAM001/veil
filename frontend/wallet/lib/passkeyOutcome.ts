@@ -62,18 +62,55 @@ export function passkeyRawMessage(error: unknown): string {
   return raw.replace(/https?:\/\/\S+/g, '').replace(/\s*see:\s*$/i, '').trim()
 }
 
+/**
+ * The DOMException names WebAuthn uses when the user closes the prompt or lets
+ * it expire. They are the ONLY thing that makes a timeout a cancellation: the
+ * ceremony reports it by name.
+ */
+const CANCELLATION_ERROR_NAMES = ['notallowederror', 'aborterror'] as const
+
+/**
+ * Words only a person's own decision produces. Deliberately excludes bare
+ * "cancel", "timeout", "timed out" and "dismiss": an aborted request or a
+ * Horizon timeout carries those too ("timeout of 30000ms exceeded"), and a
+ * failed submission misread as a cancellation returns to the form with nothing
+ * said — after the transaction may already have reached the network.
+ */
+const USER_DECISION_MARKERS = [
+  'user_rejected',
+  'user rejected',
+  'usercancelled',
+  'usercanceled',
+  'user_cancelled',
+  'user_canceled',
+  'user cancelled',
+  'user canceled',
+  'cancelled by the user',
+  'canceled by the user',
+] as const
+
+/**
+ * Whether a thrown value is the user's own decision to cancel the passkey
+ * ceremony — a dismissal, a closed sheet, or the ceremony's own timeout.
+ *
+ * Only two things count: a `PasskeyCeremonyError` whose outcome is `cancelled`,
+ * or a DOMException named `NotAllowedError` / `AbortError`. A plain error whose
+ * text merely mentions a timeout is a failure, because a network or RPC timeout
+ * during submission is exactly that.
+ */
 export function isPasskeyCancellation(error: unknown): boolean {
   if (error instanceof PasskeyCeremonyError) return error.outcome === 'cancelled'
-  const blob = `${errorName(error)} ${passkeyRawMessage(error)}`.toLowerCase()
-  return (
-    blob.includes('notallowederror') ||
-    blob.includes('aborterror') ||
-    blob.includes('cancel') ||
-    blob.includes('timed out') ||
-    blob.includes('timeout') ||
-    blob.includes('dismiss') ||
-    blob.includes('the operation was denied')
-  )
+
+  const name = errorName(error).toLowerCase()
+  if (CANCELLATION_ERROR_NAMES.some((candidate) => name === candidate)) return true
+
+  const text = passkeyRawMessage(error).toLowerCase()
+  // Some paths prefix the DOMException name to the message.
+  if (CANCELLATION_ERROR_NAMES.some((candidate) => text === candidate || text.startsWith(`${candidate}:`))) {
+    return true
+  }
+
+  return USER_DECISION_MARKERS.some((marker) => text.includes(marker))
 }
 
 export function classifyPasskeyError(error: unknown): PasskeyOutcome {

@@ -184,6 +184,21 @@ it('an authenticator refusal explains what to try', async () => {
   expect(mockSwap).not.toHaveBeenCalled();
 });
 
+it('reports a submission timeout instead of pretending the user cancelled', async () => {
+  // The passkey was accepted; the timeout came from the router/Horizon while
+  // submitting. It must reach the error state, not return to the review screen.
+  mockRequirePasskey.mockResolvedValue(undefined);
+  mockSwap.mockRejectedValue(new Error('timeout of 30000ms exceeded'));
+
+  const root = await renderAtReview();
+  await confirmSwap(root);
+
+  expect(mockSwap).toHaveBeenCalledTimes(1);
+  const errors = root.findAllByProps({ testID: 'swap-error' });
+  expect(errors.length).toBeGreaterThan(0);
+  expect(text(errors[0])).toMatch(/timeout of 30000ms exceeded/i);
+});
+
 it('a genuine failure says nothing was sent', async () => {
   mockRequirePasskey.mockRejectedValue(
     new PasskeyCeremonyError(

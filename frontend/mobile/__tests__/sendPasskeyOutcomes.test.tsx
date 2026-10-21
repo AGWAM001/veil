@@ -144,6 +144,33 @@ it('explains an authenticator refusal and offers the next step', async () => {
   expect(mockSendPayment).not.toHaveBeenCalled();
 });
 
+it('reports a submission timeout instead of silently returning to the form', async () => {
+  // A Horizon/axios timeout during submission happens AFTER the passkey was
+  // accepted, and the transaction may already be on the network. Treating the
+  // word "timeout" as a cancellation returned to the form with nothing said.
+  mockRequirePasskey.mockResolvedValue(undefined);
+  mockSendPayment.mockRejectedValue(new Error('timeout of 30000ms exceeded'));
+
+  const root = await render();
+  await pressSend(root);
+
+  expect(mockSendPayment).toHaveBeenCalledTimes(1);
+  const error = root.findByProps({ testID: 'send-error' });
+  expect(text(error)).toMatch(/timeout of 30000ms exceeded/i);
+});
+
+it('reports "request timed out" from the network as an error, not a decline', async () => {
+  mockRequirePasskey.mockResolvedValue(undefined);
+  mockSendPayment.mockRejectedValue(new Error('request timed out'));
+
+  const root = await render();
+  await pressSend(root);
+
+  const error = root.findByProps({ testID: 'send-error' });
+  expect(text(error)).toMatch(/request timed out/i);
+  expect(mockSendPayment).toHaveBeenCalledTimes(1);
+});
+
 it('reports a genuine failure without claiming a payment was sent', async () => {
   mockRequirePasskey.mockRejectedValue(
     new PasskeyCeremonyError(

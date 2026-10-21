@@ -236,6 +236,26 @@ describe('requirePasskey', () => {
       await expect(requirePasskey()).rejects.toMatchObject({ outcome: 'failed' })
       await expect(requirePasskey()).rejects.toThrow(/Nothing was sent/i)
     })
+
+    it('should reject an axios-style timeout as a failure, not a cancellation', async () => {
+      // The prompt reported neither NotAllowedError nor AbortError; only the
+      // wording mentions a timeout, which is not the ceremony's own signal.
+      mockCredentialsGet.mockRejectedValue(new Error('timeout of 30000ms exceeded'))
+
+      await expect(requirePasskey()).rejects.toMatchObject({ outcome: 'failed' })
+      await expect(requirePasskey()).rejects.not.toMatchObject({ outcome: 'cancelled' })
+    })
+
+    it('should still call a WebAuthn timeout a cancellation, by name', async () => {
+      mockCredentialsGet.mockRejectedValue(
+        new DOMException('The operation either timed out or was not allowed.', 'NotAllowedError'),
+      )
+
+      await expect(requirePasskey()).rejects.toMatchObject({
+        outcome: 'cancelled',
+        message: PASSKEY_CANCELLED_MESSAGE,
+      })
+    })
   })
 
   describe('edge cases', () => {
