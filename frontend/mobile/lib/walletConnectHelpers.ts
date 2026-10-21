@@ -161,9 +161,16 @@ export function isUserRejection(error: unknown): boolean {
   // and String({}) is "[object Object]" — which matches none of the markers
   // below, so a deliberate cancellation was reported to the user as a failure.
   const message = errorMessage(error);
+  const lower = message.toLowerCase();
   return (
     message.includes('USER_REJECTED') ||
     message.includes('NotAllowedError') ||
-    message.toLowerCase().includes('cancel')
+    lower.includes('cancel') ||
+    // A prompt left to time out is the same decision as closing it: neither
+    // is a failure, and neither should read like one.
+    lower.includes('timed out') ||
+    lower.includes('timeout') ||
+    lower.includes('aborterror') ||
+    lower.includes('dismiss')
   );
 }

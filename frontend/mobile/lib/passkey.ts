@@ -36,6 +36,12 @@ import {
 } from './walletConnect';
 import { isUserRejection } from './walletConnectHelpers';
 import { prfFromAssertion, prfFromError, type PrfEvaluation } from './prfOutcome';
+import {
+  CREDENTIAL_ORPHANED_MESSAGE,
+  PASSKEY_CANCELLED_MESSAGE,
+  PasskeyCeremonyError,
+  toPasskeyCeremonyError,
+} from './passkeyOutcome';
 import { getPasskeyId, getPasskeyPublicKey, getSignerSecret } from './walletStore';
 import { base64UrlToUint8Array, derToRawSignature, hexToUint8Array, uint8ArrayToBase64Url } from './webauthn';
 
@@ -75,11 +81,14 @@ export async function signPayloadWithPasskey(
 ): Promise<WebAuthnSignature | null> {
   const [keyId, publicKeyHex] = await Promise.all([getPasskeyId(), getPasskeyPublicKey()]);
   if (!keyId || !publicKeyHex) {
-    throw new Error('No passkey found on this device. Register the wallet first.');
+    throw new PasskeyCeremonyError(
+      'refused',
+      'No passkey found on this device. Register the wallet first, then try again.',
+    );
   }
 
   if (!isPasskeySupported()) {
-    throw new Error('Passkeys are not supported on this device.');
+    throw new PasskeyCeremonyError('refused', 'Passkeys are not supported on this device.');
   }
 
   let assertion: Awaited<ReturnType<typeof PasskeysModule.get>>;
@@ -93,7 +102,9 @@ export async function signPayloadWithPasskey(
     });
   } catch (error: unknown) {
     if (isUserRejection(error)) return null;
-    throw error;
+    // A refusal is not a cancellation: carry which one it is so the spend
+    // screen can explain the next step instead of offering a blind retry.
+    throw toPasskeyCeremonyError(error);
   }
 
   // The platform returns null when the sheet is dismissed without a selection.
@@ -143,9 +154,7 @@ function isCredentialNotFound(error: unknown): boolean {
 }
 
 /** The message shown when a stored credential no longer resolves on-device. */
-export const CREDENTIAL_ORPHANED_MESSAGE =
-  'This wallet’s passkey was created against an earlier Veil domain, so this device can no longer use it. ' +
-  'Create a new wallet on this network — your wallets on other networks are unaffected.';
+export { CREDENTIAL_ORPHANED_MESSAGE };
 
 /**
  * Gate a sensitive action behind the device passkey.
@@ -161,7 +170,10 @@ export async function requirePasskey(): Promise<void> {
     // Plain testnet-keypair mode (no passkey registered): the stored signer
     // secret authorises directly — nothing to assert against.
     if (await getSignerSecret()) return;
-    throw new Error('No passkey found on this device. Register the wallet first.');
+    throw new PasskeyCeremonyError(
+      'refused',
+      'No passkey found on this device. Register the wallet first, then try again.',
+    );
   }
 
   // A passkey exists → every sensitive action demands user presence, even
@@ -176,11 +188,15 @@ export async function requirePasskey(): Promise<void> {
       userVerification: 'required',
       timeout: 60_000,
     });
-    if (!assertion) throw new Error('Passkey cancelled. Please try again.');
+    if (!assertion) throw new PasskeyCeremonyError('cancelled', PASSKEY_CANCELLED_MESSAGE);
   } catch (error: unknown) {
-    if (isUserRejection(error)) throw new Error('Passkey cancelled. Please try again.');
-    if (isCredentialNotFound(error)) throw new Error(CREDENTIAL_ORPHANED_MESSAGE);
-    throw error;
+    if (isUserRejection(error)) {
+      throw new PasskeyCeremonyError('cancelled', PASSKEY_CANCELLED_MESSAGE);
+    }
+    if (isCredentialNotFound(error)) {
+      throw new PasskeyCeremonyError('refused', CREDENTIAL_ORPHANED_MESSAGE);
+    }
+    throw toPasskeyCeremonyError(error);
   }
 }
 
@@ -277,6 +293,6 @@ export async function discoverWithPrf(
     };
   } catch (error: unknown) {
     if (isUserRejection(error)) return null;
-    throw error;
+    throw toPasskeyCeremonyError(error);
   }
 }

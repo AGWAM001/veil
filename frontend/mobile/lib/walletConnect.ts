@@ -25,6 +25,7 @@ import * as Crypto from 'expo-crypto';
 
 import { getNetwork } from './network';
 import { inclusionFee } from './fees';
+import { PASSKEY_CANCELLED_MESSAGE, PasskeyCeremonyError } from './passkeyOutcome';
 import {
   WALLET_CONNECT_EVENTS,
   WALLET_CONNECT_METHODS,
@@ -334,7 +335,10 @@ export async function signXdrPayload(xdrString: string): Promise<string> {
 
       const webAuthnSig = await signAuthEntry(payloadHash);
       if (!webAuthnSig) {
-        throw new Error('USER_REJECTED');
+        // The contract path signs inside the ceremony, so a dismissed sheet
+        // must still arrive at the spend screen as a cancellation rather than
+        // a generic rejection.
+        throw new PasskeyCeremonyError('cancelled', PASSKEY_CANCELLED_MESSAGE);
       }
 
       const sigElements = [
