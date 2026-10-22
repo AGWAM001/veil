@@ -3,6 +3,8 @@
 import { spendableNativeXlm } from '@/lib/reserves'
 import { getUsdcIssuer } from '@/lib/network'
 import { inclusionFee } from '@/lib/fees'
+import { fetchPlatformFee } from '@/lib/platformFee'
+import { canAffordSdexSwapFee } from '@/lib/sdexSwapFeeAttach'
 import { PageHeader, Card, SectionLabel, Pill } from '@/components/ui/primitives'
 import {
   assetKey,
@@ -369,24 +371,60 @@ export default function SwapPage() {
       const txBuilder = new TransactionBuilder(account, {
         fee: inclusionFee(),
         networkPassphrase: network.networkPassphrase,
-      })
+      }).setTimeout(30)
+
+      const accountLike = account as unknown as Parameters<typeof spendableNativeXlm>[0]
+      const addsTrustline = !hasTrustline
 
       if (!hasTrustline) {
         txBuilder.addOperation(Operation.changeTrust({ asset: dest }))
       }
 
-      txBuilder
-        .addOperation(
-          Operation.pathPaymentStrictSend({
-            sendAsset: source,
-            sendAmount: sourceAmount,
-            destination: signerPubKey,
-            destAsset: dest,
-            destMin,
-            path,
+      txBuilder.addOperation(
+        Operation.pathPaymentStrictSend({
+          sendAsset: source,
+          sendAmount: sourceAmount,
+          destination: signerPubKey,
+          destAsset: dest,
+          destMin,
+          path,
+        })
+      )
+
+      // The Veil fee rides on this transaction as one more payment op —
+      // classic operations only, and only when the swap pays in XLM: the fee
+      // is denominated in what the account is already spending, so no second
+      // balance or trustline is ever needed to carry it. The Soroswap branch
+      // above is a single Soroban invocation with no room for a second op.
+      //
+      // Appended after the user's own operations, and dropped whenever the
+      // account cannot cover it at the transaction's REAL cost — including the
+      // extra operation's share of the fee bid and the 0.5 XLM reserve a
+      // changeTrust in this same transaction locks (#1201). A fee nobody asked
+      // for must never turn a swappable balance into a failed swap. The rule
+      // is the mobile app's, byte for byte — see lib/sdexSwapFeeAttach.ts.
+      const platformFee = source.isNative()
+        ? await fetchPlatformFee('XLM', Number(sourceAmount))
+        : null
+      if (
+        platformFee &&
+        canAffordSdexSwapFee({
+          spendableXlm: spendableNativeXlm(accountLike),
+          nativeAmountIn: sourceAmount,
+          feeAmount: platformFee.amount,
+          perOpBidStroops: Number(inclusionFee()),
+          opsWithoutFee: txBuilder.build().operations.length,
+          addsTrustline,
+        })
+      ) {
+        txBuilder.addOperation(
+          Operation.payment({
+            destination: platformFee.destination,
+            asset: Asset.native(),
+            amount: platformFee.amount,
           })
         )
-        .setTimeout(30)
+      }
 
       const tx = txBuilder.build()
       tx.sign(signerKeypair)
