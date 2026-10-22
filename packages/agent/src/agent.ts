@@ -121,6 +121,32 @@ export const TOOL_REGISTRY: VeilTool[] = [
     },
   },
   {
+    name: 'get_offramp_rate',
+    screen: 'Cash Out screen',
+    kind: 'read',
+    description:
+      'Read whether cash-out is available and, if available, the live NGN-per-USDC rate. Read-only: this never creates an order or verifies a bank account.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {},
+    },
+  },
+  {
+    name: 'prepare_cash_out',
+    screen: 'Cash Out screen',
+    kind: 'prepare',
+    approval: 'screen',
+    description:
+      'Prepare a cash-out hand-off with its NGN amount and the live rate from get_offramp_rate. The Cash Out screen collects and verifies the bank account and handles order creation and deposit. This tool cannot verify an account, create an order, or send a deposit.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        amount_ngn: { type: 'number', description: 'Amount of naira the user wants to receive.' },
+      },
+      required: ['amount_ngn'],
+    },
+  },
+  {
     name: 'get_asset_info',
     screen: 'asset details screen',
     kind: 'read',
@@ -325,7 +351,8 @@ RULES:
 11. For buy requests ("buy 50 USDC of USDY"), call open_invest. NEVER construct or sign a transaction for asset purchases. State that you are routing to the Invest section but that the destination screen is being built, not that it will be pre-filled and ready. Your response MUST include the issuer address and a one-line risk disclosure (e.g. "USDY is issued by Ondo Finance — review the asset details on the next screen before confirming"). Do NOT give an opinion on whether to buy.
 12. REFUSE to give investment advice. If a user asks "should I buy USDY?" or "is USDY a good investment?" or similar advice questions, respond with a flat refusal pointing them to the Invest section for details, and NOTHING MORE.
 13. CAPABILITY BOUNDARY: Only claim actions or data available through the registered capabilities above. If a request is outside them, plainly say what you cannot do from this chat and direct the user to the most relevant screen named above. Do not claim that screen supports an action unless its registered capability says so; if no screen applies, say so instead of inventing one.
-14. DATA BOUNDARY: Never estimate or infer a requested number. get_wallet_balance and get_transfer_history provide Stellar data only; get_price provides current Stellar market data only. If the requested chain or figure has no available data source, say "I cannot see that data here" and do not give a guessed or approximate number. If a registered tool reports that data is unavailable, treat that as unavailable — do not fill the gap from memory.`
+14. DATA BOUNDARY: Never estimate or infer a requested number. get_wallet_balance and get_transfer_history provide Stellar data only; get_price provides current Stellar market data only. If the requested chain or figure has no available data source, say "I cannot see that data here" and do not give a guessed or approximate number. If a registered tool reports that data is unavailable, treat that as unavailable — do not fill the gap from memory.
+15. For a cash-out, use get_offramp_rate first. If unavailable, say it is unavailable; do not blame the user or estimate a rate. If available, call prepare_cash_out with only the requested naira amount. Never select or verify a bank account, request or repeat an account number in chat, create a payout order, or send a deposit. Tell the user the Cash Out screen will collect and verify their bank account before order creation. An unverified account must be verified on that screen, not by you.`
 }
 
 /**
@@ -346,6 +373,17 @@ async function fetchWraith(baseUrl: string, path: string): Promise<unknown[]> {
   return Array.isArray(body) ? body : []
 }
 
+/**
+ * Redact Nigerian bank account numbers if the model repeats user-provided text.
+ *
+ * Deliberately narrow, and applied only to the model's prose rather than to tool
+ * results: a bare run of ten digits in a sentence is almost always an account
+ * number, but in a tool result it is as likely to be an amount or an id.
+ */
+function redactBankAccountNumbers(text: string): string {
+  return text.replace(/(?<!\d)(?:\d[ -]?){9}\d(?!\d)/g, '[account number hidden]')
+}
+
 // ── Core agent loop ──────────────────────────────────────────────────────────
 
 export interface AgentResult {
@@ -362,6 +400,8 @@ export interface AgentResult {
    * A buy request for the app's Invest screen to open. The agent never builds or signs buy transactions.
    */
   investIntent?: InvestIntent
+  /** A read-rate cash-out hand-off; the Cash Out screen owns all payout steps. */
+  cashOutIntent?: CashOutIntent
 }
 
 export interface SwapIntent {
@@ -376,6 +416,11 @@ export interface InvestIntent {
   amount?: string
   quoteCurrency?: string
   asset?: { code: string; issuer: string }
+}
+
+export interface CashOutIntent {
+  amountNGN: number
+  rate: number
 }
 
 /** Assets the apps' Swap screens offer. */
@@ -404,8 +449,33 @@ export async function runAgent(
     unavailablePrice
       ? `Current Stellar price data for ${unavailablePrice.assetA}/${unavailablePrice.assetB} is unavailable. I cannot see it here, so I won't estimate it.`
       : undefined
+  let cashOutIntent: CashOutIntent | undefined
+  let cashOutRate: number | undefined
+  let cashOutUnavailable = false
+  let cashOutNeedsRate = false
+  let cashOutPaymentBlocked = false
+  // Set when a cash-out tool actually runs this turn, which is what gates the
+  // payment tools below. Keying this off a regex over the user's message meant
+  // that "what is my balance? I want to cash out later" disabled build_payment
+  // and replaced the balance answer with a cash-out sentence.
+  let cashOutToolUsed = false
+  const cashOutResponse = () =>
+    cashOutUnavailable
+      ? 'Cash-out is unavailable right now. I have not created an order. Please try again later.'
+      : cashOutIntent
+        ? 'Your cash-out amount and live rate are ready. Select and verify your bank account on the Cash Out screen before creating an order.'
+        : cashOutNeedsRate
+          ? 'I need to check the live cash-out rate before preparing this. No order has been created.'
+          : cashOutPaymentBlocked
+            ? 'Cash-out orders and deposits must be handled on the Cash Out screen. I have not built or sent a payment.'
+            : undefined
 
-  const wraithUrl = urls?.wraithUrl ?? process.env.WRAITH_URL ?? ''
+  // The Next API route does not pass `urls`, and the wallet app only ever sets
+  // NEXT_PUBLIC_WRAITH_URL (see frontend/wallet/lib/offramp.ts). Without that
+  // fallback every cash-out rate lookup reports unavailable in production.
+  const wraithUrl = (
+    urls?.wraithUrl || process.env.WRAITH_URL || process.env.NEXT_PUBLIC_WRAITH_URL || ''
+  ).trim()
   const horizonUrl = urls?.horizonUrl ?? HORIZON_URL
   const lensUrl = urls?.lensUrl ?? process.env.LENS_URL?.trim() ?? 'https://lens-ldtu.onrender.com'
 
@@ -452,7 +522,7 @@ export async function runAgent(
         });
       }
 
-      return { response: responseText.trim() };
+      return { response: redactBankAccountNumbers(responseText.trim()) };
     } catch (error) {
       console.error("History fetch failed:", error);
       return { response: "I couldn't fetch your transaction history at the moment. The Wraith indexer might be temporarily unavailable." };
@@ -479,6 +549,65 @@ export async function runAgent(
             error: `Current Stellar price data for ${input.asset_a}/${input.asset_b} is unavailable. I cannot see it here. Do not estimate it.`,
           })
         }
+      }
+
+      case 'get_offramp_rate': {
+        cashOutToolUsed = true
+        if (NETWORK !== 'mainnet' || !wraithUrl) {
+          cashOutUnavailable = true
+          return JSON.stringify({ available: false, status: 'unavailable' })
+        }
+        try {
+          const res = await fetch(`${wraithUrl.replace(/\/+$/, '')}/offramp/rate`, {
+            signal: AbortSignal.timeout(15_000),
+          })
+          if (!res.ok) {
+            cashOutUnavailable = true
+            return JSON.stringify({ available: false, status: 'unavailable' })
+          }
+          const quote = (await res.json()) as { rate?: unknown; currency?: unknown; coin?: unknown }
+          if (typeof quote.rate !== 'number' || !Number.isFinite(quote.rate) || quote.rate <= 0) {
+            cashOutUnavailable = true
+            return JSON.stringify({ available: false, status: 'unavailable' })
+          }
+          cashOutRate = quote.rate
+          cashOutUnavailable = false
+          return JSON.stringify({
+            available: true,
+            rate: quote.rate,
+            currency: typeof quote.currency === 'string' ? quote.currency : 'NGN',
+            coin: typeof quote.coin === 'string' ? quote.coin : 'USDC',
+          })
+        } catch (err) {
+          console.warn('[agent] Cash-out rate lookup failed:', (err as Error).message)
+          cashOutUnavailable = true
+          return JSON.stringify({ available: false, status: 'unavailable' })
+        }
+      }
+
+      case 'prepare_cash_out': {
+        cashOutToolUsed = true
+        const amountNGN = input.amount_ngn
+        if (cashOutRate === undefined || cashOutUnavailable) {
+          cashOutNeedsRate = !cashOutUnavailable
+          return JSON.stringify({ error: 'Cash-out is unavailable or its live rate has not been checked.' })
+        }
+        if (
+          typeof amountNGN !== 'number' ||
+          !Number.isFinite(amountNGN) ||
+          amountNGN <= 0 ||
+          amountNGN > Number.MAX_SAFE_INTEGER
+        ) {
+          return JSON.stringify({ error: 'amount_ngn must be a positive finite amount.' })
+        }
+        cashOutIntent = { amountNGN, rate: cashOutRate }
+        cashOutNeedsRate = false
+        return JSON.stringify({
+          status: 'cash_out_screen_ready',
+          amountNGN,
+          rate: cashOutRate,
+          bankAccountVerification: 'required_on_screen',
+        })
       }
 
       case 'get_asset_info': {
@@ -577,6 +706,10 @@ export async function runAgent(
       }
 
       case 'build_payment': {
+        if (cashOutToolUsed) {
+          cashOutPaymentBlocked = true
+          return JSON.stringify({ error: 'Cash-out deposits must be sent from the Cash Out screen.' })
+        }
         const payInput = {
           ...(input as unknown as Parameters<typeof buildPayment>[0]),
           wallet_address: feePayerAddress ?? (input as any).wallet_address,
@@ -586,6 +719,10 @@ export async function runAgent(
       }
 
       case 'request_user_approval': {
+        if (cashOutToolUsed) {
+          cashOutPaymentBlocked = true
+          return JSON.stringify({ error: 'Cash-out deposits must be sent from the Cash Out screen.' })
+        }
         pendingTxXdr = input.transaction_xdr as string
         pendingTxSummary = input.summary as string
         return JSON.stringify({ status: 'awaiting_approval' })
@@ -611,11 +748,15 @@ export async function runAgent(
   while (turn.toolCalls.length > 0) {
     if (++rounds > MAX_TOOL_ROUNDS) {
       return {
-        response: unavailablePriceResponse() ?? "I couldn't finish that in one go. Try asking for one thing at a time.",
+        response:
+          cashOutResponse() ??
+          unavailablePriceResponse() ??
+          "I couldn't finish that in one go. Try asking for one thing at a time.",
         pendingTxXdr,
         pendingTxSummary,
         swapIntent,
         investIntent,
+        cashOutIntent,
       }
     }
 
@@ -636,9 +777,11 @@ export async function runAgent(
     try {
       turn = await session.next()
     } catch (err) {
-      const priceRefusal = unavailablePriceResponse()
-      if (priceRefusal) {
-        return { response: priceRefusal, pendingTxXdr, pendingTxSummary, swapIntent, investIntent }
+      // A cash-out that was prepared, refused or blocked has a settled outcome to
+      // report, and so does a price lookup that failed. Either beats re-throwing.
+      const settled = cashOutResponse() ?? unavailablePriceResponse()
+      if (settled) {
+        return { response: settled, pendingTxXdr, pendingTxSummary, swapIntent, investIntent, cashOutIntent }
       }
       // The work is done — a swap or invest to open or a payment to approve — and only the
       // model's closing sentence failed. Hand the user the result rather than an
@@ -654,14 +797,16 @@ export async function runAgent(
           pendingTxSummary,
           swapIntent,
           investIntent,
+          cashOutIntent,
         }
       }
       throw err
     }
   }
 
-  const response = unavailablePriceResponse() ?? turn.text
-  return { response, pendingTxXdr, pendingTxSummary, swapIntent, investIntent }
+  const response =
+    cashOutResponse() ?? unavailablePriceResponse() ?? redactBankAccountNumbers(turn.text)
+  return { response, pendingTxXdr, pendingTxSummary, swapIntent, investIntent, cashOutIntent }
 }
 
 // ── createVeilAgent — library-friendly wrapper ───────────────────────────────
