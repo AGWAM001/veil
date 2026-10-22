@@ -30,11 +30,17 @@ export type VeilTool = ToolSpec & {
   kind: ToolKind
   /** Required for `prepare` tools, forbidden for `read` tools. */
   approval?: ApprovalPath
+  /**
+   * The app screen this capability belongs to. The system prompt names it when
+   * it has to tell the user where a thing lives, so it must be a screen that
+   * exists and that actually does what this tool describes.
+   */
+  screen: string
 }
 
 /** The shape the model providers receive: no Veil-only fields. */
 export function toModelTools(registry: readonly VeilTool[]): ToolSpec[] {
-  return registry.map(({ kind: _kind, approval: _approval, ...spec }) => spec)
+  return registry.map(({ kind: _kind, approval: _approval, screen: _screen, ...spec }) => spec)
 }
 
 const REDACTED_SECRET = '[redacted secret]'
