@@ -94,6 +94,7 @@ const MAX_TOOL_ROUNDS = 8
 export const TOOL_REGISTRY: VeilTool[] = [
   {
     name: 'get_trending_activity',
+    kind: 'read',
     description:
       'Read the most active pairs among Lens watched markets, ranked only by Lens measured volume over the last 24 hours. ' +
       'Every issued asset includes its exact issuer and verified or unverified status. This is read-only market data, not investment advice.',
@@ -717,4 +718,4 @@ export function createVeilAgent(config: AgentConfig): VeilAgent {
       conversations.delete(walletAddress)
     },
   }
-}
+}
