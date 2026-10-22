@@ -22,6 +22,7 @@ fn _cover_all_variants(key: &DataKey) {
         DataKey::Allowance(_) => (),
         DataKey::RecoveryKey => (),
         DataKey::RecoveryKeyPending => (),
+        DataKey::NextSignerIndex => (),
     };
 }
 
@@ -72,6 +73,12 @@ fn recovery_pending_key_tag() {
 fn nonce_key_tag() {
     let actual: ScVal = (&DataKey::Nonce).try_into().unwrap();
     assert_eq!(actual, unit_key_scval("Nonce"));
+}
+
+#[test]
+fn next_signer_index_key_tag() {
+    let actual: ScVal = (&DataKey::NextSignerIndex).try_into().unwrap();
+    assert_eq!(actual, unit_key_scval("NextSignerIndex"));
 }
 
 // ── Tuple-variant tests ────────────────────────────────────────────────────────
