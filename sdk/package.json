@@ -36,15 +36,12 @@
     "./angular": {
       "types": "./dist/angular/index.d.ts",
       "default": "./dist/angular/index.js"
-    }
+    },
+    "./package.json": "./package.json"
   },
   "files": [
     "dist",
-    "src",
-    "vue",
-    "svelte",
-    "solid",
-    "angular"
+    "src"
   ],
   "scripts": {
     "build": "tsc && node scripts/flatten-dist.js",
@@ -52,6 +49,7 @@
     "test:vitest": "vitest run --coverage",
     "size": "npm run build && size-limit",
     "test:surface": "jest api-surface.test.ts",
+    "verify:exports": "npm run build && node scripts/verify-exports.js",
     "stryker": "stryker run",
     "storybook": "storybook dev -p 6006 -c react/.storybook",
     "build-storybook": "storybook build -c react/.storybook -o react/storybook-static",
