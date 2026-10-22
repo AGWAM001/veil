@@ -78,9 +78,11 @@ export default function OnboardingPage() {
       // Testnet only: give the spending account some XLM so the wallet is
       // usable straight away. Best-effort — a faucet hiccup must not stop a
       // wallet from being created, since nothing below depends on it.
-      const friendbotUrl = buildFriendbotUrl(signerKeypair.publicKey())
-      if (friendbotUrl) {
-        await fetch(friendbotUrl).catch(() => null)
+      if (getNetwork().name === 'testnet') {
+        const friendbotUrl = buildFriendbotUrl(signerKeypair.publicKey())
+        if (friendbotUrl) {
+          await fetch(friendbotUrl).catch(() => null)
+        }
       }
 
       // No deploy here. The wallet address is a pure function of the factory,

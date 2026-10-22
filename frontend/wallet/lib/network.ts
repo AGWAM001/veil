@@ -212,7 +212,9 @@ export function getNativeAssetContractId(): string {
 }
 
 export function buildFriendbotUrl(address: string): string | null {
-  return sdkBuildFriendbotUrl(address, getNetwork().friendbotUrl)
+  const net = getNetwork()
+  if (net.name !== 'testnet' || !net.friendbotUrl) return null
+  return sdkBuildFriendbotUrl(address, net.friendbotUrl)
 }
 
 /**
