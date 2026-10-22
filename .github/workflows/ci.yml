@@ -217,7 +217,7 @@ jobs:
           fail_ci_if_error: false
 
   agent:
-    name: Agent — typecheck & build
+    name: Agent — typecheck, build & test
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -232,6 +232,7 @@ jobs:
       - run: npm ci || { echo "::warning::npm ci failed; falling back to npm install"; npm install; }
       - run: npx tsc --noEmit
       - run: npm run build
+      - run: npm test
 
   mobile:
     name: Mobile — typecheck & test
