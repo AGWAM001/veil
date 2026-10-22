@@ -4,7 +4,6 @@ import {
   openRouterProvider,
   type ChatTurn,
   type LlmProvider,
-  type ToolSpec,
 } from './llm.js'
 import { HORIZON_URL, NETWORK, SOROBAN_RPC_URL } from './network.js'
 import { classifyBalances, describeAsset, getRegisteredAsset } from './assets.js'
@@ -12,6 +11,7 @@ import { getPrice } from './price.js'
 import { buildPayment, getBalances } from './txBuilder.js'
 import { getTrendingActivity } from './trending.js'
 import { StrKey } from '@stellar/stellar-sdk'
+import { redactSensitive, toModelTools, type VeilTool } from './boundary.js'
 
 // ── Agent configuration ──────────────────────────────────────────────────────
 
@@ -87,7 +87,11 @@ const MAX_TOOL_ROUNDS = 8
 
 // ── Tools ────────────────────────────────────────────────────────────────────
 
-const tools: ToolSpec[] = [
+/**
+ * The whole tool registry. Every tool declares its `kind` here, in the
+ * definition — see boundary.ts and BOUNDARY.md. boundary.test.ts walks this.
+ */
+export const TOOL_REGISTRY: VeilTool[] = [
   {
     name: 'get_trending_activity',
     description:
@@ -100,6 +104,7 @@ const tools: ToolSpec[] = [
   },
   {
     name: 'get_price',
+    kind: 'read',
     description:
       'Get the current price of one asset in terms of another on the Stellar DEX: ' +
       'how many units of asset_b one unit of asset_a sells for right now, and how many hops the best route takes.',
@@ -114,6 +119,7 @@ const tools: ToolSpec[] = [
   },
   {
     name: 'get_asset_info',
+    kind: 'read',
     description:
       'Look up an asset in Veil\'s verified registry (ASSET_REGISTRY): its verified issuer, metadata, and whether it can be frozen or clawed back. ' +
       'ALWAYS call this for asset information questions like "What is USDY?" or "What is USDT0?". Pass "CODE", "code" or "CODE:ISSUER". Never answer asset issuer details from LLM memory.',
@@ -127,6 +133,8 @@ const tools: ToolSpec[] = [
   },
   {
     name: 'open_invest',
+    kind: 'prepare',
+    approval: 'screen',
     description:
       'Hand off a buy request or investment to the wallet\'s Invest/Earn section. ' +
       'The agent must never construct or sign a transaction for buying invest assets.',
@@ -143,6 +151,7 @@ const tools: ToolSpec[] = [
   },
   {
     name: 'get_transfer_history',
+    kind: 'read',
     description:
       'Get recent transfer history for a wallet — includes both classic Stellar payments (XLM sends/receives) ' +
       'and Soroban token transfers. Returns classicPayments from Horizon and sorobanTransfers from Wraith.',
@@ -158,6 +167,7 @@ const tools: ToolSpec[] = [
   },
   {
     name: 'get_wallet_balance',
+    kind: 'read',
     description:
       'Get current XLM and token balances for a wallet address. Free. ' +
       'The result includes "holdings": every issued asset with its issuer and a status of verified, unverified or unlisted. ' +
@@ -172,6 +182,8 @@ const tools: ToolSpec[] = [
   },
   {
     name: 'open_swap',
+    kind: 'prepare',
+    approval: 'screen',
     description:
       'Hand a swap to the wallet\'s Swap screen, filled in with the assets and amount. ' +
       'The Swap screen fetches its own live quote across Soroswap, Phoenix, Aqua and the Stellar DEX, ' +
@@ -189,6 +201,8 @@ const tools: ToolSpec[] = [
   },
   {
     name: 'build_payment',
+    kind: 'prepare',
+    approval: 'request_user_approval',
     description:
       'Build a Stellar payment transaction to send XLM or tokens. ' +
       'ALWAYS call request_user_approval after building.',
@@ -206,6 +220,8 @@ const tools: ToolSpec[] = [
   },
   {
     name: 'request_user_approval',
+    kind: 'prepare',
+    approval: 'self',
     description:
       'ALWAYS call this before any transaction executes. ' +
       'Sends the transaction to the wallet UI for passkey (biometric) approval. ' +
@@ -565,7 +581,7 @@ export async function runAgent(
     SYSTEM_PROMPT(walletAddress, feePayerAddress ?? walletAddress, profile),
     conversationHistory,
     userMessage,
-    tools,
+    toModelTools(TOOL_REGISTRY),
   )
 
   // Agentic loop, bounded. Each round is a paid or rate-limited model call, so a
@@ -593,6 +609,9 @@ export async function runAgent(
       } catch (err) {
         content = JSON.stringify({ error: (err as Error).message })
       }
+      // Last gate before the model sees it: no secret or provider URL, even
+      // inside an error message or a backend-supplied field.
+      content = redactSensitive(content)
       results.push({ id: call.id, content })
     }
     session.addToolResults(results)
