@@ -28,6 +28,7 @@ const mockSubmitTransaction = jest.fn();
 const mockLoadAccount = jest.fn();
 const mockStrictSendPathsCall = jest.fn();
 const mockFetchPlatformFee = jest.fn();
+const mockIncrementSequenceNumber = jest.fn();
 
 let signerSecret: string;
 let signerPubKey: string;
@@ -110,7 +111,7 @@ function accountWithSpendable(spendable: string, { trusted }: { trusted: boolean
   return {
     accountId: () => signerPubKey,
     sequenceNumber: () => '100',
-    incrementSequenceNumber: () => undefined,
+    incrementSequenceNumber: mockIncrementSequenceNumber,
     subentry_count: subentries,
     balances,
   };
@@ -228,5 +229,12 @@ describe('sdexSwap attaches the Veil fee only within the full margin (#1201)', (
     await runSwap('20', false);
     // The fee check must not have changed how the transaction is built.
     expect(submitted().networkPassphrase).toBe(Networks.TESTNET);
+  });
+
+  it('builds the transaction once so the account sequence advances once', async () => {
+    await runSwap('20', false);
+    // TransactionBuilder.build() advances the account sequence; counting ops
+    // by building early would submit the swap with a skipped sequence number.
+    expect(mockIncrementSequenceNumber).toHaveBeenCalledTimes(1);
   });
 });

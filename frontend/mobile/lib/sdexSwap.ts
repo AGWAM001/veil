@@ -99,6 +99,7 @@ export async function sdexSwap(params: {
   if (addsTrustline) {
     builder.addOperation(Operation.changeTrust({ asset: dst }));
   }
+  const opsWithoutFee = 1 + Number(addsTrustline);
 
   builder.addOperation(
     Operation.pathPaymentStrictSend({
@@ -130,7 +131,7 @@ export async function sdexSwap(params: {
       nativeAmountIn: params.amountIn,
       feeAmount: platformFee.amount,
       perOpBidStroops: Number(inclusionFee()),
-      opsWithoutFee: builder.build().operations.length,
+      opsWithoutFee,
       addsTrustline,
     })
   ) {

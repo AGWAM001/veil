@@ -375,6 +375,7 @@ export default function SwapPage() {
 
       const accountLike = account as unknown as Parameters<typeof spendableNativeXlm>[0]
       const addsTrustline = !hasTrustline
+      const opsWithoutFee = 1 + Number(addsTrustline)
 
       if (!hasTrustline) {
         txBuilder.addOperation(Operation.changeTrust({ asset: dest }))
@@ -413,7 +414,7 @@ export default function SwapPage() {
           nativeAmountIn: sourceAmount,
           feeAmount: platformFee.amount,
           perOpBidStroops: Number(inclusionFee()),
-          opsWithoutFee: txBuilder.build().operations.length,
+          opsWithoutFee,
           addsTrustline,
         })
       ) {
