@@ -68,6 +68,14 @@ jobs:
         run: |
           echo "## Stellar Private Payments (SPP) Drift Check" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
+          # Which runs matter (#1153): PR runs are warn-only and always green; the
+          # scheduled/dispatch runs are the enforced ones. Say so on every run.
+          if [ "${{ (github.event_name == 'pull_request' || inputs.warn_only) && '1' || '0' }}" = "1" ]; then
+            echo "**Mode: warn-only** (PR / opt-in) — drift is reported but never fails this run; the scheduled runs are the enforced ones." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "**Mode: enforced** (scheduled/dispatch) — a real pin↔upstream disagreement fails this run; an unreachable upstream is UNKNOWN (warning annotation) and does not." >> "$GITHUB_STEP_SUMMARY"
+          fi
+          echo "" >> "$GITHUB_STEP_SUMMARY"
           if [ -f summary.txt ]; then
             cat summary.txt >> "$GITHUB_STEP_SUMMARY"
           fi
