@@ -12,6 +12,13 @@
 //! with the s-half normalised low — sign the payload directly, or leave s high,
 //! and `secp256r1_verify` traps instead of returning an error, which reads as a
 //! contract bug rather than a bad fixture.
+//!
+//! Suite layout, by concern:
+//! - **Authorisation**: `one_assertion_authorizes_every_context_in_the_batch`,
+//!   `webauthn_branch_does_not_restrict_context_types`.
+//! - **Limits**: `allowance_branch_rejects_a_non_transfer_context_in_the_batch`.
+//! - **Recovery / replay**: `replaying_a_batch_assertion_is_rejected`.
+//! - **Lifecycle**: `nonce_is_consumed_once_per_batch_regardless_of_size`.
 
 use p256::ecdsa::{signature::hazmat::PrehashSigner, Signature as P256Sig, SigningKey};
 use sha2::{Digest, Sha256};
@@ -222,6 +229,9 @@ fn bare_context(env: &Env, fn_name: &str) -> Context {
 // ── One assertion, many operations ───────────────────────────────────────────
 
 /// The core claim: three operations, one passkey assertion, one nonce.
+///
+/// Guards: if this fails, a batch either costs more than one nonce (breaking
+/// client-side nonce prediction) or authorizes fewer operations than signed.
 #[test]
 fn one_assertion_authorizes_every_context_in_the_batch() {
     let env = Env::default();
@@ -251,6 +261,10 @@ fn one_assertion_authorizes_every_context_in_the_batch() {
 /// The nonce tracks assertions, not operations, so batch size must not change
 /// how fast it advances. If it ever did, a batch would burn nonces a client
 /// could not predict, and an assertion it had already signed would be rejected.
+///
+/// Guards: if this fails, a client that pre-signs an assertion for nonce N
+/// finds the contract expecting N+1 after an unrelated batch, and the signed
+/// assertion is rejected — funds stay put but the wallet appears bricked.
 #[test]
 fn nonce_is_consumed_once_per_batch_regardless_of_size() {
     let env = Env::default();
@@ -293,6 +307,9 @@ fn nonce_is_consumed_once_per_batch_regardless_of_size() {
 /// signed against is already spent. The batch is not special here, and that is
 /// the point: one assertion covering N operations is replayable exactly as
 /// often as one covering a single operation, which is never.
+///
+/// Guards: if this fails, a captured batch assertion can be resubmitted to
+/// drain the wallet repeatedly — the single most expensive failure mode here.
 #[test]
 fn replaying_a_batch_assertion_is_rejected() {
     let env = Env::default();
@@ -332,6 +349,10 @@ fn replaying_a_batch_assertion_is_rejected() {
 ///
 /// The WebAuthn branch deliberately does not do this; see
 /// `webauthn_branch_does_not_restrict_context_types` below.
+///
+/// Guards: if this fails, a delegated spender can smuggle an `approve` beside
+/// a legitimate `transfer` and grant itself a fresh allowance — a privilege
+/// escalation from "may move up to X" to "may move anything, forever".
 #[test]
 fn allowance_branch_rejects_a_non_transfer_context_in_the_batch() {
     let env = Env::default();
@@ -398,6 +419,10 @@ fn allowance_branch_rejects_a_non_transfer_context_in_the_batch() {
 /// non-`Contract` context such as a contract deployment. Only the per-key spend
 /// limit looks inside them, and it reads an `i128` from `args[2]` of `Contract`
 /// contexts alone, so a non-contract context contributes nothing to the total.
+///
+/// Guards: if this fails, someone tightened the WebAuthn branch without
+/// updating this characterisation — which is fine, but must be a deliberate
+/// change, because the per-key spend limit does not see non-`Contract` args.
 #[test]
 fn webauthn_branch_does_not_restrict_context_types() {
     let env = Env::default();

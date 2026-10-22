@@ -120,6 +120,9 @@ mod tests {
 
     // ── happy path ──────────────────────────────────────────────────────────────
 
+    // Guards the full recovery flow: request, wait out the timelock, finalize.
+    // If this fails, a legitimate recovery key holder cannot rotate the signer,
+    // which means a lost passkey permanently locks the wallet's funds.
     #[test]
     fn test_request_and_finalize_recovery() {
         let (env, id) = setup();
@@ -154,6 +157,9 @@ mod tests {
 
     // ── timelock boundary ───────────────────────────────────────────────────────
 
+    // Guards the exact unlock boundary: finalize must fail at unlock_at and
+    // succeed only strictly after it. If this fails, the 7-day delay can be
+    // bypassed, letting a compromised recovery key drain the wallet instantly.
     #[test]
     fn test_timelock_boundary() {
         let (env, id) = setup();
@@ -186,6 +192,9 @@ mod tests {
 
     // ── cancellation ────────────────────────────────────────────────────────────
 
+    // Guards that cancelling a pending request actually clears it. If this
+    // fails, the original signer cannot abort a hostile recovery request and
+    // the attacker's signer gets installed once the timelock elapses.
     #[test]
     fn test_cancel_recovery_request() {
         let (env, id) = setup();
@@ -212,6 +221,9 @@ mod tests {
         );
     }
 
+    // Guards that cancel without a pending request errors instead of silently
+    // succeeding. If this fails, callers cannot distinguish "nothing to cancel"
+    // from "cancelled", masking state bugs around the pending recovery slot.
     #[test]
     fn test_cancel_without_pending_fails() {
         let (env, id) = setup();
@@ -221,6 +233,9 @@ mod tests {
 
     // ── error paths ─────────────────────────────────────────────────────────────
 
+    // Guards that recovery cannot be initiated without a configured recovery
+    // key. If this fails, anyone could request a recovery and, after the
+    // timelock, take over a wallet that never opted into recovery.
     #[test]
     fn test_request_without_recovery_key_fails() {
         let (env, id) = setup();
@@ -229,6 +244,9 @@ mod tests {
         assert!(client.try_request_recovery(&new_key).is_err());
     }
 
+    // Guards that only one recovery request can be pending at a time. If this
+    // fails, a second request could overwrite the first, resetting the timelock
+    // and letting an attacker keep a recovery perpetually one step from finalizing.
     #[test]
     fn test_duplicate_request_rejected() {
         let (env, id) = setup();
@@ -253,6 +271,9 @@ mod tests {
         );
     }
 
+    // Guards that finalize without a pending request errors. If this fails,
+    // finalize could be called with no request in flight, potentially
+    // installing an unset or stale signer and bricking the wallet.
     #[test]
     fn test_finalize_without_pending_fails() {
         let (env, id) = setup();
