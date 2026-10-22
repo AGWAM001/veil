@@ -97,6 +97,10 @@ mod tests {
         env.register_contract(None, crate::InvisibleWallet)
     }
 
+    // ── Authorisation: no limit configured ────────────────────────────────────
+    // A key with no spend limit is intentionally unrestricted; if this fails,
+    // every unconfigured key is silently blocked from spending.
+
     // ── No limit configured ───────────────────────────────────────────────────
 
     #[test]
@@ -108,6 +112,10 @@ mod tests {
             assert!(enforce(&env, &key, i128::MAX).is_ok());
         });
     }
+
+    // ── Limits: within cap ────────────────────────────────────────────────────
+    // Guards that ordinary spending below the cap is not rejected; a failure
+    // here means the wallet cannot spend at all under a configured limit.
 
     // ── Within cap ───────────────────────────────────────────────────────────
 
@@ -123,6 +131,10 @@ mod tests {
         });
     }
 
+    // ── Limits: exactly at cap ────────────────────────────────────────────────
+    // Guards the inclusive boundary: spending exactly the cap must be allowed,
+    // otherwise users lose the last unit of their intended budget.
+
     // ── Exactly at cap ────────────────────────────────────────────────────────
 
     #[test]
@@ -135,6 +147,10 @@ mod tests {
             assert!(enforce(&env, &key, 1_000).is_ok());
         });
     }
+
+    // ── Limits: over cap rejected ─────────────────────────────────────────────
+    // Guards the core hazard: a single spend exceeding the cap must be refused,
+    // or the per-key limit provides no protection against a compromised key.
 
     // ── Over cap rejected ────────────────────────────────────────────────────
 
@@ -151,6 +167,10 @@ mod tests {
             );
         });
     }
+
+    // ── Limits: cumulative spend enforced ─────────────────────────────────────
+    // Guards against splitting a large spend into smaller calls to evade the
+    // cap; if this fails, the rolling window can be bypassed entirely.
 
     // ── Cumulative spend enforced ─────────────────────────────────────────────
 
@@ -177,6 +197,10 @@ mod tests {
         });
     }
 
+    // ── Recovery: window resets after 24h ─────────────────────────────────────
+    // Guards that a key recovers its budget once the window elapses; a failure
+    // here permanently locks a key out after it first reaches its cap.
+
     // ── Window resets after 24h ───────────────────────────────────────────────
 
     #[test]
@@ -198,6 +222,10 @@ mod tests {
         });
     }
 
+    // ── Limits: window does NOT reset before 24h ──────────────────────────────
+    // Guards the opposite hazard: resetting early would let a key spend its cap
+    // repeatedly within the same day, defeating the rolling window.
+
     // ── Window does NOT reset before 24h ─────────────────────────────────────
 
     #[test]
@@ -218,6 +246,10 @@ mod tests {
         });
     }
 
+    // ── Lifecycle: spent counter persists across calls ────────────────────────
+    // Guards that cumulative spend is durably stored between invocations; if it
+    // resets, each call is judged against the cap in isolation and never blocks.
+
     // ── Spent counter persists across calls ───────────────────────────────────
 
     #[test]
@@ -236,6 +268,10 @@ mod tests {
             assert_eq!(record.cap, 300);
         });
     }
+
+    // ── Lifecycle: remove clears enforcement ──────────────────────────────────
+    // Guards that removing a limit actually lifts enforcement; a failure here
+    // leaves a key permanently capped even after the owner revokes the limit.
 
     // ── Remove clears enforcement ─────────────────────────────────────────────
 
