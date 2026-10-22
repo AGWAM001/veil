@@ -19,6 +19,7 @@ mod guardian_test;
 mod batch_tests;
 #[cfg(test)]
 mod recovery_slot_test;
+mod operator_refusal_tests;
 use storage::{DataKey, AllowanceKey};
 pub use recovery::{PendingRecoveryStatus, RecoverySource};
 
