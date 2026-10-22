@@ -305,11 +305,11 @@ describe('requests that are refused before anything is signed', () => {
 
   it('refuses an unsupported method', async () => {
     // A dApp could otherwise invent a method name and get a silent no-op it reads as success.
-    await wc.handleSignXdrRequest(request('stellar_signMessage', dappTxXdr()))
+    await wc.handleSignXdrRequest(request('stellar_signSomethingElse', dappTxXdr()))
     expect(lastResponse()).toEqual({
       id: 42,
       jsonrpc: '2.0',
-      error: { code: 10001, message: 'Unsupported method: stellar_signMessage' },
+      error: { code: 10001, message: 'Unsupported method: stellar_signSomethingElse' },
     })
     expect(passkey).not.toHaveBeenCalled()
     expectNothingSigned()
@@ -823,7 +823,15 @@ describe('session lifecycle', () => {
       id: 9,
       namespaces: {
         stellar: {
-          methods: ['stellar_signXDR', 'stellar_signAndSubmitXDR'],
+          methods: [
+            'stellar_signXDR',
+            'stellar_signAndSubmitXDR',
+            'stellar_signAuthEntry',
+            'stellar_signMessage',
+            'stellar_getAccount',
+            'stellar_getAddress',
+            'stellar_getNetwork',
+          ],
           chains: [TESTNET],
           events: ['accountsChanged', 'chainChanged'],
           accounts: [`${TESTNET}:${WALLET}`],

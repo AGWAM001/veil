@@ -41,7 +41,15 @@ export type WalletConnectRequest = {
 };
 
 /** Methods this wallet advertises to dApps during session negotiation. */
-export const WALLET_CONNECT_METHODS = ['stellar_signXDR', 'stellar_signAndSubmitXDR'];
+export const WALLET_CONNECT_METHODS = [
+  'stellar_signXDR',
+  'stellar_signAndSubmitXDR',
+  'stellar_signAuthEntry',
+  'stellar_signMessage',
+  'stellar_getAccount',
+  'stellar_getAddress',
+  'stellar_getNetwork',
+];
 
 export const WALLET_CONNECT_EVENTS = ['accountsChanged', 'chainChanged'];
 
