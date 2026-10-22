@@ -151,7 +151,7 @@ funded by the award.
 
 ## 7. Do now — no contract work needed
 
-- [ ] **Correct `frontend/docs/pages/contract-upgrades.mdx`.** Mark both functions as *not
+- [x] **Correct `frontend/docs/pages/contract-upgrades.mdx`.** Mark both functions as *not
       implemented, planned for contracts v2*. It is public and describes guarantees we do not have.
 - [ ] **SCF application:** state the gap and put contracts v2 in the milestones.
 
