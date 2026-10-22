@@ -183,6 +183,18 @@ Commit the generated file in `.changeset/`. On merge to `main`,
 `.github/workflows/release.yml` opens or updates a "Version Packages" PR that
 bumps the versions and changelogs.
 
+When that PR is merged, the same workflow publishes the released versions only
+when the repository variable `ENABLE_NPM_PUBLISH` is `true`. Before enabling
+it, both public package names (`invisible-wallet-sdk` and
+`create-veil-wallet`) must resolve on npm and each package must have a Trusted
+Publisher configured for GitHub Actions (`Miracle656` / `veil` / `release.yml`,
+with direct publishing allowed). The release job uses Node 24 so npm's OIDC
+trusted publishing support is available. The workflow checks package
+availability first and reports the package name plus the required maintainer
+action if one is missing. Keep `ENABLE_NPM_PUBLISH` unset or `false` while the
+npm ownership or publisher configuration is incomplete; version PRs will
+continue to be created without attempting a publish.
+
 Because each package owns its own lockfile, the version bump has to reach the
 lockfile too — `npm run version-packages` runs `changeset version` and then
 `scripts/sync-package-lockfiles.mjs`, which refreshes each package's
