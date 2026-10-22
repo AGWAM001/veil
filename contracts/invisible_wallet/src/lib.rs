@@ -20,7 +20,9 @@ mod guardian_test;
 mod batch_tests;
 #[cfg(test)]
 mod recovery_slot_test;
+#[cfg(test)]
 mod operator_refusal_tests;
+#[cfg(test)]
 mod spend_limit_tests;
 #[cfg(test)]
 mod webauthn_fixture;
