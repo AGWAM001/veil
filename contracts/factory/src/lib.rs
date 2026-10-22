@@ -720,4 +720,61 @@ mod test {
             );
         });
     }
+
+    /// ADR 0005 pins the multi-wallet salt scheme before anyone ships one:
+    /// index 0 is DEFINED as today's bare SHA-256(public_key) — not
+    /// SHA-256(public_key ‖ be32(0)) — so every existing wallet, including
+    /// every wallet holding money on mainnet, is retroactively index 0 of its
+    /// key without moving. If this test fails, a salt change has broken the
+    /// one compatibility invariant multi-wallet is allowed to rely on.
+    #[test]
+    fn multi_wallet_index_zero_salt_is_todays_salt() {
+        let env = make_env();
+        env.mock_all_auths();
+        let contract_id = register_factory(&env);
+        let client = FactoryClient::new(&env, &contract_id);
+        client.init(&install_mock_wallet(&env));
+
+        let key = valid_pub_key(&env);
+
+        // ADR 0005: salt(pk, 0) = SHA-256(pk), byte-identical to what
+        // deploy() computes today, predicted before the deploy happens.
+        let index_zero_salt = BytesN::from_array(&env, &sha2_hash(&key.to_array()));
+        let predicted = env.as_contract(&contract_id, || {
+            env.deployer()
+                .with_address(env.current_contract_address(), index_zero_salt.clone())
+                .deployed_address()
+        });
+
+        let deployed = client.deploy(&key, &make_rp_id(&env), &make_origin(&env));
+        assert_eq!(deployed, predicted, "index 0 must be today's address");
+
+        // And index 0 is NOT the concatenated form: SHA-256(pk ‖ be32(0))
+        // is a different salt. A naive implementation that concatenates for
+        // every index — zero included — would silently move every existing
+        // wallet to a new address.
+        fn sha2_hash_69(input: &[u8; 69]) -> [u8; 32] {
+            use sha2::{Digest, Sha256};
+            let mut hasher = Sha256::new();
+            hasher.update(input);
+            hasher.finalize().into()
+        }
+        let mut concatenated = [0u8; 69];
+        concatenated[..65].copy_from_slice(&key.to_array());
+        // The last four bytes stay 0x00000000 — be32(0).
+        assert_ne!(sha2_hash_69(&concatenated), sha2_hash(&key.to_array()));
+
+        // Index 1 under the scheme is a distinct salt and a distinct address.
+        let mut with_index_one = concatenated;
+        with_index_one[68] = 1; // be32(1)
+        let index_one_address = env.as_contract(&contract_id, || {
+            env.deployer()
+                .with_address(
+                    env.current_contract_address(),
+                    BytesN::from_array(&env, &sha2_hash_69(&with_index_one)),
+                )
+                .deployed_address()
+        });
+        assert_ne!(index_one_address, deployed);
+    }
 }
