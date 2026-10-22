@@ -67,6 +67,18 @@
   ],
   "author": "",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Miracle656/veil.git",
+    "directory": "sdk"
+  },
+  "homepage": "https://docs.useveilapp.xyz/sdk-reference",
+  "bugs": {
+    "url": "https://github.com/Miracle656/veil/issues"
+  },
+  "engines": {
+    "node": ">=20"
+  },
   "dependencies": {
     "@stellar/stellar-sdk": "^15.1.0"
   },
