@@ -39,6 +39,7 @@ import {
     computeWalletAddress,
 } from './utils';
 import { webAuthnProvider } from './webauthn';
+import { encodeApproveArgs } from './allowance';
 import { assertionPublicKeyCandidates } from './crypto/assertionKey';
 import { TransactionOutbox, type ReplayOptions, type ReplayResult } from './outbox';
 import { verifyAttestation, AttestationError, type AttestationPolicy } from './webauthn/attestation';
@@ -455,8 +456,10 @@ export type InvisibleWalletActions = {
      * @param token         Stellar address of the token contract.
      * @param amount        Maximum amount the spender is allowed to spend.
      * @param expiry        Optional Unix timestamp (seconds) when the allowance expires.
+     *                      `approve` replaces the stored expiry as well as the amount:
+     *                      omitting it makes the allowance permanent.
      */
-    approve: (signer: SignerInput, spender: string, token: string, amount: number, expiry?: number) => Promise<void>;
+    approve: (signer: SignerInput, spender: string, token: string, amount: number | bigint, expiry?: number | bigint) => Promise<void>;
     /**
      * Get the current on-chain balance of this wallet from a token contract.
      * @param token Optional token contract address. Defaults to native XLM.
@@ -2024,8 +2027,8 @@ export class InvisibleWalletCore {
         signer: SignerInput,
         spender: string,
         token: string,
-        amount: number,
-        expiry?: number
+        amount: number | bigint,
+        expiry?: number | bigint
     ): Promise<void> => {
         const { rpcUrl, networkPassphrase } = this.config;
 
@@ -2038,25 +2041,12 @@ export class InvisibleWalletCore {
             const walletContract = new Contract(address);
             const sourceAccount = await server.getAccount(resolveSigner(signer).publicKey);
 
-            let expiryVal: xdr.ScVal;
-            if (expiry !== undefined) {
-                expiryVal = nativeToScVal([nativeToScVal(BigInt(expiry), { type: 'u64' })], { type: 'Vec' });
-            } else {
-                expiryVal = xdr.ScVal.scvVoid();
-            }
-
             const tx = new TransactionBuilder(sourceAccount, {
                 fee: BASE_FEE,
                 networkPassphrase,
             })
                 .addOperation(
-                    walletContract.call(
-                        'approve',
-                        nativeToScVal(spender, { type: 'address' }),
-                        nativeToScVal(token, { type: 'address' }),
-                        nativeToScVal(BigInt(amount), { type: 'i128' }),
-                        expiryVal
-                    )
+                    walletContract.call('approve', ...encodeApproveArgs(spender, token, amount, expiry))
                 )
                 .setTimeout(30)
                 .build();

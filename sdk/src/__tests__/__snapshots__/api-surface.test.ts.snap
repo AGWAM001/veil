@@ -59,6 +59,7 @@ exports[`SDK API Surface should match the snapshot for main SDK exports 1`] = `
   "deriveFeePayerSeedFromPrf: function(arity: 1)",
   "deriveKeyFromPrf: function(arity: 1)",
   "deserializeBackup: function(arity: 1)",
+  "encodeApproveArgs: function(arity: 4)",
   "encodeU64: function(arity: 1)",
   "encryptBackup: function(arity: 2)",
   "encryptWithKey: function(arity: 2)",

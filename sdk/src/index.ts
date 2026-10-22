@@ -2,6 +2,7 @@ export type * from './types';
 export * from './useInvisibleWallet';
 export * from './utils';
 export * from './outbox';
+export { encodeApproveArgs } from './allowance';
 export {
     encryptBackup,
     decryptBackup,
