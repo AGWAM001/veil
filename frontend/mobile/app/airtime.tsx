@@ -70,6 +70,7 @@ import {
   payBill,
   type NairaCoin,
 } from '../lib/onramp';
+import { classifyBillPollStatus } from '../lib/billFlow';
 
 type Step = 'form' | 'confirm' | 'paying' | 'done' | 'failed';
 
@@ -191,8 +192,13 @@ export default function AirtimeScreen() {
     const check = async () => {
       try {
         const s = await getBillStatus(customerRef, orderId);
-        if (/complete|success|delivered/i.test(s.status)) setStep('done');
-        if (/fail|refund|revers/i.test(s.status)) setStep('failed');
+        // One classifier for every bill screen. This used to be an inline
+        // regex that did not know "settled"/"disbursed" — the words Linq
+        // actually ends a vend with — so a delivered top-up never left this
+        // screen.
+        const outcome = classifyBillPollStatus(s.status);
+        if (outcome === 'done') setStep('done');
+        if (outcome === 'failed') setStep('failed');
       } catch (err) {
         // Silent *to the user*: a failed poll is nothing they can act on, and
         // the payment has already left, so an error here would read as if it
