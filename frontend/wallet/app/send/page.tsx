@@ -7,6 +7,7 @@ import { Nav, PageHeader } from '@/components/ui/primitives'
 import { Shield } from 'lucide-react'
 import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
+import { resolveFederation } from '@/lib/federation'
 
 import {
   Keypair, TransactionBuilder, BASE_FEE, Asset, Operation, Memo,
@@ -26,6 +27,7 @@ import { buildStellarMemo, validateMemo } from '@/lib/sep7'
 import { getRegisteredAsset } from '@/lib/assets'
 import { buildSep7Memo, type Sep7MemoType } from '@/lib/sep7'
 import { passkeyErrorMessage } from '@/lib/passkeyAuth'
+import { isPasskeyCancellation } from '@/lib/passkeyOutcome'
 import { horizonErrorMessage } from '@/lib/horizonError'
 import { spendableNativeXlm } from '@/lib/reserves'
 import { validateMemoText } from '@/lib/memo'
@@ -85,10 +87,46 @@ export default function SendPage() {
   useInactivityLock()
   const [step, setStep]               = useState<Step>('form')
   const [recipient, setRecipient]     = useState('')
+  const [resolvedAddress, setResolvedAddress] = useState<string | null>(null)
+  const [isResolvingName, setIsResolvingName] = useState(false)
+  const [nameResolutionError, setNameResolutionError] = useState<string | null>(null)
   const [amount, setAmount]           = useState('')
   const [memo, setMemo]               = useState('')
   // TODO(#1003): remove platform limitation warning when multi-origin contract ships
   const [isFirstSpendNotice, setIsFirstSpendNotice] = useState(false)
+
+  useEffect(() => {
+    const trimmed = recipient.trim()
+    if (!trimmed.includes('*')) {
+      setResolvedAddress(null)
+      setNameResolutionError(null)
+      setIsResolvingName(false)
+      return
+    }
+
+    let active = true
+    setIsResolvingName(true)
+    setNameResolutionError(null)
+
+    resolveFederation(trimmed)
+      .then((res) => {
+        if (active) {
+          setResolvedAddress(res.account_id)
+          setIsResolvingName(false)
+        }
+      })
+      .catch((err) => {
+        if (active) {
+          setResolvedAddress(null)
+          setNameResolutionError(err instanceof Error ? err.message : 'Could not resolve federation name')
+          setIsResolvingName(false)
+        }
+      })
+
+    return () => {
+      active = false
+    }
+  }, [recipient])
   /**
    * The exact asset a payment request asked for, held until the account's
    * balances load so it can be selected by `code:issuer` rather than lost when
@@ -333,7 +371,10 @@ export default function SendPage() {
   }
 
   function validateForm(): boolean {
-    const validAddress = (recipient.startsWith('G') || recipient.startsWith('C')) && recipient.length === 56
+    const isFederated = recipient.trim().includes('*')
+    const validAddress = isFederated
+      ? Boolean(resolvedAddress)
+      : (recipient.startsWith('G') || recipient.startsWith('C')) && recipient.length === 56
     if (!validAddress) return false
     if (isNaN(parseFloat(amount)) || parseFloat(amount) <= 0) return false
     if (!selectedAsset) return false
@@ -383,15 +424,16 @@ export default function SendPage() {
       }
 
       const horizonServer = new Server(network.horizonUrl)
+      const destination = resolvedAddress ?? recipient
 
-      if (recipient.startsWith('G') && recipient.length === 56) {
+      if (destination.startsWith('G') && destination.length === 56) {
         const account = await horizonServer.loadAccount(feePayerKp.publicKey())
         const builder = new TransactionBuilder(account, {
           fee: inclusionFee(),
           networkPassphrase: network.networkPassphrase,
         })
           .addOperation(Operation.payment({
-            destination: recipient,
+            destination: destination,
             // The asset exactly as selected — code and issuer — never re-derived
             // from the code alone.
             asset: selectedAsset?.issuer
@@ -468,7 +510,7 @@ export default function SendPage() {
           .addOperation(sacContract.call(
             'transfer',
             nativeToScVal(feePayerKp.publicKey(), { type: 'address' }),
-            nativeToScVal(recipient,              { type: 'address' }),
+            nativeToScVal(destination,            { type: 'address' }),
             nativeToScVal(amountStroops,          { type: 'i128' }),
           ))
           .setTimeout(30)
@@ -502,6 +544,13 @@ export default function SendPage() {
 
       setStep('done')
     } catch (err: unknown) {
+      // Closing the passkey sheet (or letting it time out) puts the user back
+      // on the form with their details intact. Nothing was submitted.
+      if (isPasskeyCancellation(err)) {
+        setErrorMsg(null)
+        setStep('form')
+        return
+      }
       // Horizon first: it rejects every failed transaction with a 400, so the
       // only thing `passkeyErrorMessage` could say about one was "Request
       // failed with status code 400". The reason is in the response body.
@@ -769,6 +818,19 @@ export default function SendPage() {
                   }}
                 />
               </div>
+              {isResolvingName && (
+                <p className="vw-meta" style={{ marginTop: '6px' }}>Resolving federation address…</p>
+              )}
+              {resolvedAddress && (
+                <p className="vw-meta" style={{ marginTop: '6px', color: 'var(--teal)' }}>
+                  ✓ Resolves to: {resolvedAddress.slice(0, 8)}…{resolvedAddress.slice(-8)}
+                </p>
+              )}
+              {nameResolutionError && (
+                <p className="vw-meta" style={{ marginTop: '6px', color: 'var(--coral)' }}>
+                  ⚠ {nameResolutionError}
+                </p>
+              )}
               {imgError && (
                 <p style={{ fontSize: '0.75rem', color: 'var(--teal)', marginTop: '0.375rem', lineHeight: 1.4 }}>
                   {imgError}
@@ -865,7 +927,10 @@ export default function SendPage() {
           <div className="vw-send-stage" style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
             <div className="card">
               <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-                <Row label="To"      value={`${recipient.slice(0, 8)}...${recipient.slice(-8)}`} mono />
+                <Row label="To"      value={recipient.includes('*') ? recipient : `${recipient.slice(0, 8)}...${recipient.slice(-8)}`} mono />
+                {resolvedAddress && (
+                  <Row label="Resolved Address" value={`${resolvedAddress.slice(0, 8)}...${resolvedAddress.slice(-8)}`} mono />
+                )}
                 <Row label="Amount"  value={`${amount} ${selectedAsset?.code ?? 'XLM'}`} mono />
                 {selectedAsset?.issuer && (
                   <Row
