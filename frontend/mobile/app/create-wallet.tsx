@@ -11,7 +11,7 @@ import { useTheme } from '../hooks/useTheme';
 import type { ThemeColors } from '../lib/theme';
 import { fontFamily } from '../theme/typography';
 import { FlowHeader } from '../components/FlowHeader';
-import { createTestnetWallet, importTestnetWallet, type CreatedWallet } from '../lib/testnetWallet';
+import { createClassicWallet, importClassicWallet, type CreatedWallet } from '../lib/classicWallet';
 import {
   createPasskeyWallet,
   recreatePasskeyWallet,
@@ -371,7 +371,7 @@ export default function CreateWallet() {
             <Pressable
               accessibilityRole="button"
               disabled={status === 'busy' || secret.trim().length < 56}
-              onPress={() => run(() => importTestnetWallet(secret))}
+              onPress={() => run(() => importClassicWallet(secret))}
               style={({ pressed }) => [styles.cta, (status === 'busy' || secret.trim().length < 56) && styles.disabled, pressed && styles.pressed]}
             >
               {status === 'busy' ? <ActivityIndicator color={colors.onAccent} /> : <Text style={styles.ctaText}>Import wallet</Text>}
@@ -398,7 +398,7 @@ export default function CreateWallet() {
               testID="create-wallet-button"
               accessibilityRole="button"
               disabled={status === 'busy'}
-              onPress={() => run(createTestnetWallet)}
+              onPress={() => run(createClassicWallet)}
               style={({ pressed }) => [
                 IN_EXPO_GO ? styles.cta : styles.ctaSecondary,
                 status === 'busy' && styles.disabled,

@@ -39,6 +39,7 @@ import {
     computeWalletAddress,
 } from './utils';
 import { webAuthnProvider } from './webauthn';
+import { encodeApproveArgs } from './allowance';
 import { assertionPublicKeyCandidates } from './crypto/assertionKey';
 import { TransactionOutbox, type ReplayOptions, type ReplayResult } from './outbox';
 import { verifyAttestation, AttestationError, type AttestationPolicy } from './webauthn/attestation';
@@ -48,6 +49,8 @@ import {
     deriveCounterfactualAddress as _deriveCounterfactualAddress,
     type CounterfactualAddress,
 } from './counterfactual';
+import { createSep43Wallet, type Sep43Wallet } from './sep43';
+import { signMessage } from './signMessage';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -347,6 +350,11 @@ export type InvisibleWalletActions = {
      * @param signaturePayload  The 32-byte payload from the Soroban SorobanAuthorizationEntry.
      */
     signAuthEntry: (signaturePayload: Uint8Array) => Promise<WebAuthnSignature | null>;
+    /**
+     * Standard SEP-43 wallet interface.
+     * Conforms to Stellar's standard web wallet API (SEP-0043).
+     */
+    getSep43Wallet: () => Sep43Wallet;
     /** Derive the counterfactual wallet address for a given P-256 public key before deployment. */
     deriveCounterfactualAddress: (publicKeyBytes: Uint8Array) => CounterfactualAddress;
     /**
@@ -455,8 +463,10 @@ export type InvisibleWalletActions = {
      * @param token         Stellar address of the token contract.
      * @param amount        Maximum amount the spender is allowed to spend.
      * @param expiry        Optional Unix timestamp (seconds) when the allowance expires.
+     *                      `approve` replaces the stored expiry as well as the amount:
+     *                      omitting it makes the allowance permanent.
      */
-    approve: (signer: SignerInput, spender: string, token: string, amount: number, expiry?: number) => Promise<void>;
+    approve: (signer: SignerInput, spender: string, token: string, amount: number | bigint, expiry?: number | bigint) => Promise<void>;
     /**
      * Get the current on-chain balance of this wallet from a token contract.
      * @param token Optional token contract address. Defaults to native XLM.
@@ -718,6 +728,7 @@ export class InvisibleWalletCore {
             encryptLocal:                this.encryptLocal,
             decryptLocal:                this.decryptLocal,
             encryptionMode:              this.encryptionMode,
+            getSep43Wallet:              this.getSep43Wallet,
         };
     }
 
@@ -2024,8 +2035,8 @@ export class InvisibleWalletCore {
         signer: SignerInput,
         spender: string,
         token: string,
-        amount: number,
-        expiry?: number
+        amount: number | bigint,
+        expiry?: number | bigint
     ): Promise<void> => {
         const { rpcUrl, networkPassphrase } = this.config;
 
@@ -2038,25 +2049,12 @@ export class InvisibleWalletCore {
             const walletContract = new Contract(address);
             const sourceAccount = await server.getAccount(resolveSigner(signer).publicKey);
 
-            let expiryVal: xdr.ScVal;
-            if (expiry !== undefined) {
-                expiryVal = nativeToScVal([nativeToScVal(BigInt(expiry), { type: 'u64' })], { type: 'Vec' });
-            } else {
-                expiryVal = xdr.ScVal.scvVoid();
-            }
-
             const tx = new TransactionBuilder(sourceAccount, {
                 fee: BASE_FEE,
                 networkPassphrase,
             })
                 .addOperation(
-                    walletContract.call(
-                        'approve',
-                        nativeToScVal(spender, { type: 'address' }),
-                        nativeToScVal(token, { type: 'address' }),
-                        nativeToScVal(BigInt(amount), { type: 'i128' }),
-                        expiryVal
-                    )
+                    walletContract.call('approve', ...encodeApproveArgs(spender, token, amount, expiry))
                 )
                 .setTimeout(30)
                 .build();
@@ -2125,5 +2123,56 @@ export class InvisibleWalletCore {
     encryptionMode = async (): Promise<'prf' | 'fallback'> => {
         const cipher = await this.getCipher();
         return cipher.mode;
+    };
+
+    getSep43Wallet = (): Sep43Wallet => {
+        return createSep43Wallet({
+            getAddress: async () => this.state.address ?? (await this.store.getItem('invisible_wallet_address')),
+            getNetwork: () => ({
+                network: this.config.networkPassphrase.includes('Test') ? 'TESTNET' : 'PUBLIC',
+                networkPassphrase: this.config.networkPassphrase,
+                rpcUrl: this.config.rpcUrl,
+            }),
+            signTransaction: async (xdrString) => {
+                const rpc = new SorobanRpc.Server(this.config.rpcUrl);
+                const tx = TransactionBuilder.fromXDR(xdrString, this.config.networkPassphrase);
+                const sim = await rpc.simulateTransaction(tx, { cpuInstructions: 5_000_000 } as any);
+                if (SorobanRpc.Api.isSimulationError(sim)) {
+                    throw new Error(`Simulation failed: ${sim.error}`);
+                }
+                await this.authorizeEntries(sim as SorobanRpc.Api.SimulateTransactionSuccessResponse);
+                const assembled = SorobanRpc.assembleTransaction(tx, sim).build();
+                return assembled.toXDR();
+            },
+            signAuthPayload: async (payloadHash: Uint8Array) => {
+                return this.signAuthEntry(payloadHash);
+            },
+            getWalletNonce: async () => {
+                try {
+                    return await this.getNonce();
+                } catch {
+                    return null;
+                }
+            },
+            signMessage: async (message: string) => {
+                const keyId = await this.store.getItem('invisible_wallet_key_id');
+                if (!keyId) throw new Error('No passkey registered.');
+                const signed = await signMessage(
+                    new TextEncoder().encode(message),
+                    this.signAuthEntry,
+                    keyId
+                );
+                return JSON.stringify(signed);
+            },
+            submitTransaction: async (signedXdr: string, submitUrl?: string) => {
+                const rpc = new SorobanRpc.Server(submitUrl || this.config.rpcUrl);
+                const tx = TransactionBuilder.fromXDR(signedXdr, this.config.networkPassphrase);
+                const res = await rpc.sendTransaction(tx);
+                if (res.status === 'ERROR') {
+                    throw new Error(`Transaction submission failed: ${JSON.stringify(res.errorResult)}`);
+                }
+                return res.hash;
+            },
+        });
     };
 }
