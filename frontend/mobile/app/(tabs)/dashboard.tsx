@@ -23,6 +23,13 @@ import { getWalletAddress } from '../../lib/walletStore';
 import ActivityFeed from '../../components/ActivityFeed';
 import { FeePayerBanner } from '../../components/FeePayerBanner';
 import { checkFeePayerFunding, type FeePayerFundingState } from '../../lib/feePayerCheck';
+
+/**
+ * How long a healthy fee-payer result is reused before Horizon is asked again.
+ * A funded account does not become unfunded on its own, and the dashboard polls
+ * every 15s for the life of the screen.
+ */
+const FEE_CHECK_HEALTHY_INTERVAL_MS = 5 * 60_000;
 import { useInitActivityFeed, hydrateActivityFeed, type TxRecord } from '../../lib/activityFeed';
 import { loadHorizonActivity } from '../../lib/horizonActivity';
 import { usePolling } from '../../hooks/usePolling';
@@ -105,6 +112,15 @@ export default function DashboardTab() {
   // there is nothing to show), so it reappears if the account is drained again
   // but stays hidden while still unfunded after an explicit dismiss.
   const [feeBannerDismissedFor, setFeeBannerDismissedFor] = useState<string | null>(null);
+  // When the last funding check ran. A healthy fee-payer is the overwhelmingly
+  // common case and does not change on its own, so re-asking Horizon every 15s
+  // for the life of the screen is mobile data spent to learn nothing. While
+  // something is actually wrong the check runs every refresh, because that is
+  // when the user is funding the account and wants the banner to clear.
+  const feeCheckedAtRef = useRef(0);
+  // `refreshAll` is a useCallback with no deps, so it cannot read `feeFunding`
+  // state — the ref is the copy it can see.
+  const feeFundingRef = useRef<FeePayerFundingState | null>(null);
   const detailSheetRef = useRef<BottomSheetModal>(null);
 
   const handleSelectTx = useCallback((tx: TxRecord) => {
@@ -172,19 +188,28 @@ export default function DashboardTab() {
         // otherwise it spins forever with no way to say what went wrong.
         setActivitySettled(true);
       }
-      // Fee-payer funding is re-checked on every refresh (mount, focus, poll,
+      // Fee-payer funding is re-checked on refresh (mount, focus, poll,
       // pull-to-refresh) so the banner clears without an app restart once
       // funded. An unreachable Horizon reports `unknown` and shows nothing —
       // a failed lookup must never read as a broken wallet.
-      try {
-        const funding = await checkFeePayerFunding();
-        setFeeFunding(funding);
-        if (funding.status !== 'missing' && funding.status !== 'underfunded') {
-          setFeeBannerDismissedFor(null);
+      //
+      // Throttled while healthy: see feeCheckedAtRef.
+      const healthyAndFresh =
+        feeFundingRef.current?.status === 'healthy' &&
+        Date.now() - feeCheckedAtRef.current < FEE_CHECK_HEALTHY_INTERVAL_MS;
+      if (!healthyAndFresh) {
+        try {
+          feeCheckedAtRef.current = Date.now();
+          const funding = await checkFeePayerFunding();
+          feeFundingRef.current = funding;
+          setFeeFunding(funding);
+          if (funding.status !== 'missing' && funding.status !== 'underfunded') {
+            setFeeBannerDismissedFor(null);
+          }
+        } catch {
+          // Leave the last funding state in place; the banner is supplementary
+          // and must never break the balance/activity refresh around it.
         }
-      } catch {
-        // Leave the last funding state in place; the banner is supplementary
-        // and must never break the balance/activity refresh around it.
       }
     },
     [],
