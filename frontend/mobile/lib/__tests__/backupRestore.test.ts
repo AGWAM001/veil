@@ -22,6 +22,7 @@ const mockSetSignerSecret = jest.fn();
 const mockSetPasskeyCredential = jest.fn();
 const mockWriteBreadcrumbs = jest.fn();
 const mockMultiSet = jest.fn();
+const mockSetItem = jest.fn();
 const mockGetNetworkName = jest.fn();
 
 jest.mock('expo-crypto', () => ({
@@ -57,7 +58,7 @@ jest.mock('@react-native-async-storage/async-storage', () => ({
   __esModule: true,
   default: {
     getItem: jest.fn(async () => null),
-    setItem: jest.fn(async () => undefined),
+    setItem: (...a: unknown[]) => mockSetItem(...a),
     removeItem: jest.fn(async () => undefined),
     multiSet: (...a: unknown[]) => mockMultiSet(...a),
   },
@@ -135,6 +136,7 @@ beforeEach(() => {
   jest.resetAllMocks();
   mockGetNetworkName.mockReturnValue('testnet');
   mockMultiSet.mockResolvedValue(undefined);
+  mockSetItem.mockResolvedValue(undefined);
   mockWriteBreadcrumbs.mockResolvedValue(undefined);
   mockPersist.mockResolvedValue(undefined);
   mockSetWalletAddress.mockResolvedValue(undefined);
@@ -148,6 +150,7 @@ function expectNoWrites() {
   expect(mockSetWalletAddress).not.toHaveBeenCalled();
   expect(mockSetSignerSecret).not.toHaveBeenCalled();
   expect(mockSetPasskeyCredential).not.toHaveBeenCalled();
+  expect(mockSetItem).not.toHaveBeenCalled();
   expect(mockMultiSet).not.toHaveBeenCalled();
   expect(mockWriteBreadcrumbs).not.toHaveBeenCalled();
 }
@@ -164,7 +167,7 @@ describe('restoreBackupWithSignerCheck', () => {
     expect(result.filename).toBe(FILE.name);
     expect(result.recoverable).toBe(true);
     expect(result.credentialId).toBe('test-credential');
-    expect(mockPersist).toHaveBeenCalledTimes(1);
+    expect(mockPersist).not.toHaveBeenCalled();
     expect(mockSetWalletAddress).toHaveBeenCalledWith(WALLET);
     expect(mockSetPasskeyCredential).toHaveBeenCalledWith(
       'test-credential',
@@ -173,6 +176,55 @@ describe('restoreBackupWithSignerCheck', () => {
     expect(mockSetSignerSecret).toHaveBeenCalledWith(
       Keypair.fromRawEd25519Seed(Buffer.from(prfSeed)).secret(),
     );
+    expect(mockMultiSet).toHaveBeenCalledWith([
+      ['invisible_wallet_address', WALLET],
+      ['invisible_wallet_key_id', 'test-credential'],
+      ['invisible_wallet_public_key', signerOf(REGISTERED).publicKey],
+    ]);
+    expect(mockSetItem).not.toHaveBeenCalled();
+  });
+
+  it('persists the backup settings without writing unsuffixed SDK keys', async () => {
+    mockReadSigners.mockResolvedValue([signerOf(REGISTERED)]);
+    mockDiscover.mockResolvedValue(assertionOf(REGISTERED));
+    const metadata = {
+      version: 1,
+      address: WALLET,
+      signers: [signerOf(REGISTERED)],
+      settings: { currency: 'NGN' },
+      networkPassphrase: 'Test SDF Network ; September 2015',
+      createdAt: 1_700_000_000_000,
+    };
+    mockReadBlob.mockResolvedValue(
+      serializeBackup(encryptBackup(metadata, PASSPHRASE, { iterations: TEST_ITERATIONS })),
+    );
+
+    await restoreBackupWithSignerCheck(FILE, PASSPHRASE);
+
+    expect(mockSetItem).toHaveBeenCalledWith('veil_wallet_settings', JSON.stringify({ currency: 'NGN' }));
+    expect(mockPersist).not.toHaveBeenCalled();
+  });
+
+  it('writes only the namespaced SDK mirror on mainnet', async () => {
+    mockGetNetworkName.mockReturnValue('mainnet');
+    mockReadSigners.mockResolvedValue([signerOf(REGISTERED)]);
+    mockDiscover.mockResolvedValue(assertionOf(REGISTERED, new Uint8Array(32).fill(11)));
+
+    await restoreBackupWithSignerCheck(FILE, PASSPHRASE);
+
+    expect(mockMultiSet).toHaveBeenCalledTimes(1);
+    expect(mockMultiSet).toHaveBeenCalledWith([
+      ['invisible_wallet_address_mainnet', WALLET],
+      ['invisible_wallet_key_id_mainnet', 'test-credential'],
+      ['invisible_wallet_public_key_mainnet', signerOf(REGISTERED).publicKey],
+    ]);
+    const writtenKeys = mockMultiSet.mock.calls.flatMap(([entries]) =>
+      (entries as Array<[string, string]>).map(([key]) => key),
+    );
+    expect(writtenKeys).not.toContain('invisible_wallet_address');
+    expect(writtenKeys).not.toContain('invisible_wallet_public_key');
+    expect(writtenKeys).not.toContain('invisible_wallet_key_id');
+    expect(mockPersist).not.toHaveBeenCalled();
   });
 
   it('falls back to a fresh random fee-payer when PRF is unavailable, like address sign-in', async () => {

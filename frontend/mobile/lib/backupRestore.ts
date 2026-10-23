@@ -26,12 +26,12 @@ import {
   deserializeBackup,
   type WalletBackupMetadata,
 } from './backup';
-import { persistRestoredState, readBackupFile, type PickedBackupFile } from './backupFile';
-import { getNetworkName } from './network';
+import { readBackupFile, type PickedBackupFile } from './backupFile';
 import { discoverWithPrf, type DiscoveredPasskey } from './passkey';
 import {
   FEE_PAYER_PRF_SALT,
   findMatchingSigner,
+  writeSdkMirror,
 } from './passkeyLogin';
 import { readSigners, WalletContractNotFoundError, type WalletSigner } from './signers';
 import { writeBreadcrumbs } from './walletBreadcrumbs';
@@ -53,6 +53,13 @@ export const BACKUP_NETWORK_UNREACHABLE_MESSAGE =
   'Could not reach the network to check this backup. Check your connection and try again.';
 
 export const BACKUP_PASSKEY_CANCELLED_MESSAGE = 'Passkey sign-in was cancelled.';
+
+/**
+ * Non-secret settings key used by `backupFile.ts`. Kept here so the restore
+ * path can apply settings without also invoking `persistRestoredState`, whose
+ * unsuffixed SDK keys disagree with the network-namespaced mirror.
+ */
+const WALLET_SETTINGS_STORAGE_KEY = 'veil_wallet_settings';
 
 function toHex(bytes: Uint8Array): string {
   return Buffer.from(bytes).toString('hex');
@@ -76,26 +83,12 @@ export type BackupRestoreResult = {
 export type BackupRestoreDeps = {
   readSignersFn?: (address: string) => Promise<WalletSigner[]>;
   discoverFn?: (salt: Uint8Array) => Promise<DiscoveredPasskey | null>;
-  persistFn?: (metadata: WalletBackupMetadata) => Promise<void>;
   setWalletAddressFn?: (address: string) => Promise<void>;
   setSignerSecretFn?: (secret: string) => Promise<void>;
   setPasskeyCredentialFn?: (credentialId: string, publicKeyHex: string) => Promise<void>;
   writeBreadcrumbsFn?: (feePayerSecret: string, address: string, publicKey: Uint8Array) => Promise<void>;
   writeSdkMirrorFn?: (address: string, credentialId: string, publicKeyHex: string) => Promise<void>;
 };
-
-async function defaultWriteSdkMirror(
-  address: string,
-  credentialId: string,
-  publicKeyHex: string,
-): Promise<void> {
-  const suffix = getNetworkName() === 'mainnet' ? '_mainnet' : '';
-  await AsyncStorage.multiSet([
-    [`invisible_wallet_address${suffix}`, address],
-    [`invisible_wallet_key_id${suffix}`, credentialId],
-    [`invisible_wallet_public_key${suffix}`, publicKeyHex],
-  ]);
-}
 
 /**
  * Restore a wallet from a backup file with the V191 signer check.
@@ -117,12 +110,11 @@ export async function restoreBackupWithSignerCheck(
   const {
     readSignersFn = readSigners,
     discoverFn = discoverWithPrf,
-    persistFn = persistRestoredState,
     setWalletAddressFn = setWalletAddress,
     setSignerSecretFn = setSignerSecret,
     setPasskeyCredentialFn = setPasskeyCredential,
     writeBreadcrumbsFn = writeBreadcrumbs,
-    writeSdkMirrorFn = defaultWriteSdkMirror,
+    writeSdkMirrorFn = writeSdkMirror,
   } = deps;
 
   // ── Decrypt first, persist nothing yet. A BackupTamperError here means the
@@ -165,12 +157,16 @@ export async function restoreBackupWithSignerCheck(
     : Keypair.random();
   const recoverable = prfSeed !== null;
 
-  await persistFn(metadata);
   await Promise.all([
     setWalletAddressFn(address),
     setSignerSecretFn(feePayer.secret()),
     setPasskeyCredentialFn(picked.credentialId, publicKeyHex),
+    metadata.settings
+      ? AsyncStorage.setItem(WALLET_SETTINGS_STORAGE_KEY, JSON.stringify(metadata.settings))
+      : Promise.resolve(),
   ]);
+  // Address + credential + public key go through the one namespaced SDK writer;
+  // no unsuffixed copy is written on mainnet.
   await writeSdkMirrorFn(address, picked.credentialId, publicKeyHex).catch(() => undefined);
   void writeBreadcrumbsFn(feePayer.secret(), address, matched).catch(() => undefined);
 

@@ -247,8 +247,18 @@ export function findMatchingSigner(picked: DiscoveredPasskey, signers: WalletSig
   return null;
 }
 
-/** Write the SDK's AsyncStorage keys, namespaced per network like walletStore. */
-async function writeSdkMirror(address: string, credentialId: string, publicKeyHex: string): Promise<void> {
+/**
+ * Write the SDK's AsyncStorage keys, namespaced per network like walletStore.
+ *
+ * Exported so backup-file restore (V192 / #765) uses this writer rather than a
+ * second copy of the suffix rule. One writer means the SDK keys cannot drift
+ * into a half-old-device / half-new-device wallet across flows.
+ */
+export async function writeSdkMirror(
+  address: string,
+  credentialId: string,
+  publicKeyHex: string,
+): Promise<void> {
   const suffix = getNetworkName() === 'mainnet' ? '_mainnet' : '';
   await AsyncStorage.multiSet([
     [`${SDK_ADDRESS}${suffix}`, address],

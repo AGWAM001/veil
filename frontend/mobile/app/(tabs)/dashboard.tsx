@@ -21,7 +21,7 @@ import type { ThemeColors } from '../../lib/theme';
 import { getWalletAddress } from '../../lib/walletStore';
 import ActivityFeed from '../../components/ActivityFeed';
 import { FeePayerBanner } from '../../components/FeePayerBanner';
-import { checkFeePayerFunding, type FeePayerFundingState } from '../../lib/fees';
+import { checkFeePayerFunding, type FeePayerFundingState } from '../../lib/feePayerCheck';
 import { useInitActivityFeed, hydrateActivityFeed, type TxRecord } from '../../lib/activityFeed';
 import { loadHorizonActivity } from '../../lib/horizonActivity';
 import { usePolling } from '../../hooks/usePolling';

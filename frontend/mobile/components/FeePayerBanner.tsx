@@ -3,6 +3,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
 import QRCode from 'react-native-qrcode-svg';
 
+import { useHiddenAmounts } from '../hooks/useHiddenAmounts';
 import { useTheme } from '../hooks/useTheme';
 import type { ThemeColors } from '../lib/theme';
 import { formatFundingXlm } from '../lib/fees';
@@ -43,6 +44,7 @@ export function FeePayerBanner({
   onDismiss,
 }: FeePayerBannerProps) {
   const { colors } = useTheme();
+  const { mask } = useHiddenAmounts();
   const styles = useMemo(() => createStyles(colors), [colors]);
   const [copied, setCopied] = useState(false);
 
@@ -58,7 +60,7 @@ export function FeePayerBanner({
 
   const subline = missing
     ? 'It does not exist on the network yet.'
-    : `It holds ${formatFundingXlm(balance)} of the ${formatFundingXlm(needed)} required.`;
+    : `It holds ${mask(formatFundingXlm(balance))} of the ${formatFundingXlm(needed)} required.`;
 
   return (
     <View style={styles.banner} testID="fee-payer-banner">
