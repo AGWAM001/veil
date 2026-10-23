@@ -21,6 +21,16 @@ import {
 } from '@stellar/stellar-sdk'
 import { walletLocal, walletSession } from '@/lib/walletStorage'
 import { walletContractErrorMessage } from './walletContractError'
+import { recordApprovalsInXdr } from './allowances'
+
+/**
+ * Remember any allowance a signed dApp transaction grants, so Settings →
+ * Spending permissions can find it later (the contract keeps no list; #1187).
+ */
+function rememberApprovals(xdrString: string): void {
+  const wallet = walletLocal.getItem('invisible_wallet_address') ?? walletSession.getItem('invisible_wallet_address')
+  recordApprovalsInXdr(walletLocal, wallet, xdrString)
+}
 
 async function getWalletNonce(
   rpc: SorobanRpc.Server,
@@ -606,6 +616,7 @@ export async function handleSignXdrRequest(event: any): Promise<void> {
       const requestParams = event.params?.request?.params
       const xdrString = getRequestXdr(requestParams)
       const signedXDR = await signXdrPayload(xdrString, walletAddress)
+      rememberApprovals(xdrString)
       await client.respondSessionRequest({
         topic,
         response: buildWcResult(requestId, { signedXDR }),
@@ -617,6 +628,7 @@ export async function handleSignXdrRequest(event: any): Promise<void> {
       const requestParams = event.params?.request?.params
       const xdrString = getRequestXdr(requestParams)
       const txHash = await handleSignAndSubmitXdrRequest(xdrString, walletAddress)
+      rememberApprovals(xdrString)
       await client.respondSessionRequest({
         topic,
         response: buildWcResult(requestId, { txHash }),
