@@ -556,15 +556,26 @@ export type BillTerminalOutcome = 'done' | 'failed' | 'pending';
 /**
  * Classifies a bill order status into terminal or in-flight states.
  *
- * Success statuses: 'complete', 'completed', 'success', 'delivered'.
- * Failure statuses: 'failed', 'refunded', 'reversed', 'cancelled'.
- * All other / unrecognized statuses default to 'pending' so requerying
- * can settle them rather than assuming a false failure.
+ * Success: 'complete', 'completed', 'success', 'delivered', 'settled',
+ * 'disbursed'. Failure: 'failed', 'refunded', 'reversed', 'cancelled',
+ * 'expired', 'timeout'. Anything still moving, and anything unrecognised,
+ * stays 'pending' so requerying can settle it rather than assuming a false
+ * failure.
+ *
+ * `settled` and `disbursed` are in the success list because they are the words
+ * Linq actually ends a vend with. Without them a delivered, paid-for top-up
+ * classified as `pending` and the screen waited for it forever. wraith now
+ * appends "(completed)" for installed apps that predate this
+ * (`billStatusForClients`), but a client that can read the provider's own word
+ * should not need the translation.
  */
 export function classifyBillStatus(status: string): BillTerminalOutcome {
   const s = status.trim().toLowerCase();
-  if (/complete|success|delivered/.test(s)) return 'done';
-  if (/fail|refund|revers|cancel/.test(s)) return 'failed';
+  // Checked before the success test: "settlement_pending" and "refund_pending"
+  // both contain a terminal word and are not terminal.
+  if (/pending|processing|awaiting|queued|initiated|progress/.test(s)) return 'pending';
+  if (/complete|success|delivered|settled|disbursed/.test(s)) return 'done';
+  if (/fail|refund|revers|cancel|expire|timeout/.test(s)) return 'failed';
   return 'pending';
 }
 
