@@ -188,7 +188,7 @@ An open mandate is a standing authorisation. Its limits are **constraints evalua
 |---|---|---|
 | `payment.budget`: total across uses | `SessionKeyAcl.amount_cap` and `spent`, cumulative [session_key.rs L18-43](../../contracts/invisible_wallet/src/session_key.rs#L18-L43), checked in `enforce` [L109-151](../../contracts/invisible_wallet/src/session_key.rs#L109-L151) | Units: AP2 amounts are fiat (`"USD"`), the ACL counts token base units of one contract. |
 | `exp` / `payment.execution_date` | `SessionKeyAcl.expiry`, and `Allowance.expiry` [lib.rs L458](../../contracts/invisible_wallet/src/lib.rs#L458) | No `not_before`. |
-| `payment.allowed_payees` | **None.** The session-key branch checks target contract, selector and amount, never `args[1]` (the `to`) [lib.rs L329-335](../../contracts/invisible_wallet/src/lib.rs#L329-L335) | A session key capped for one token can pay **anyone**. |
+| `payment.allowed_payees` | **None.** The session-key branch checks target contract, selector and amount, never `args[1]` (the `to`) [lib.rs L329-335](../../contracts/invisible_wallet/src/lib.rs#L329-L335) | A session key capped for one token can pay **anyone**. Update: `SessionKeyAcl` now has an optional `payees` allow-list and `per_call_max`, set via `register_session_key_scoped`; this reaches only future factory deployments. |
 | `payment.amount_range`: per payment | None. The cap is cumulative only. A per-key 24-hour limit exists for passkey signers only [lib.rs L418](../../contracts/invisible_wallet/src/lib.rs#L418) | No per-call max for delegated keys. |
 | `payment.agent_recurrence` | None | Frequency and occurrence counts. |
 | `cnf`: the agent's P-256 key | Session keys are **ed25519** | The agent's AP2 key and its Stellar key would be two keys, and nothing specifies how to bind them. |
@@ -263,7 +263,9 @@ Re-read this document if any of these happen:
 
 - No code changes follow from this ADR.
 - Findings that stand on their own, whatever happens to AP2, and are best filed separately:
-  - `SessionKeyAcl` cannot restrict the payee. A session key for a token can pay any address.
+  - Session-key payees are now optional and enforced from the invocation's
+    recipient argument; a configured payee cannot be replaced by another
+    address. Per-payment ranges remain future work.
   - Paying x402 from the `C…` wallet needs the auth-entry expiry taken from `maxTimeoutSeconds`,
     not the fixed `+100` ledgers.
   - `README.md` still describes Lens and the agent's x402 client as live.
