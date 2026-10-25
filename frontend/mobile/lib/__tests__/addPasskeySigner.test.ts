@@ -276,3 +276,49 @@ describe('the add-a-device path cannot reach the primary binding', () => {
     }
   });
 });
+
+// ── The deployed-contract overwrite defect (#1176) ───────────────────────────
+
+describe('a signer disappearing while another is added', () => {
+  // `add_signer` used to allocate its index as `next_index = len()`, so after a
+  // middle `remove_signer` the next add wrote over a live slot and silently
+  // replaced another key. #1233 fixed the contract source on 2026-10-22, but
+  // wallets are not upgradeable — every wallet deployed before that still has
+  // the old code and always will. The client is the only place left to notice.
+  it('refuses to report success when the add replaced an existing signer', async () => {
+    mockReadSigners
+      // Before the write: primary plus an older additional signer.
+      .mockResolvedValueOnce([
+        { index: 0, publicKey: PRIMARY_KEY },
+        { index: 1, publicKey: 'cc'.repeat(65) },
+      ])
+      // After: the new key took index 1 and the older signer is gone.
+      .mockResolvedValueOnce([
+        { index: 0, publicKey: PRIMARY_KEY },
+        { index: 1, publicKey: NEW_KEY.toString('hex') },
+      ]);
+
+    await expect(addPasskeySigner()).rejects.toThrow(/removed an existing signer/i);
+  });
+
+  it('reports success normally when every previous signer survives', async () => {
+    mockReadSigners
+      .mockResolvedValueOnce([{ index: 0, publicKey: PRIMARY_KEY }])
+      .mockResolvedValueOnce([
+        { index: 0, publicKey: PRIMARY_KEY },
+        { index: 1, publicKey: NEW_KEY.toString('hex') },
+      ]);
+
+    const outcome = await addPasskeySigner();
+    expect(outcome.signer.status).toBe('active');
+  });
+
+  it('still reports success when the chain cannot be read, rather than blocking the add', async () => {
+    // Settling is best effort: the signer is already on chain, so a flaky RPC
+    // read must not be reported as a failed add.
+    mockReadSigners.mockRejectedValue(new Error('rpc unreachable'));
+
+    const outcome = await addPasskeySigner();
+    expect(outcome.signer.status).toBe('pending');
+  });
+});

@@ -132,9 +132,70 @@ async function submitAddSigner(walletAddress: string, publicKey: Uint8Array, onS
   }
 }
 
+/** The wallet's on-chain signer public keys, lowercased hex. */
+async function onChainSignerKeys(walletAddress: string): Promise<string[]> {
+  return (await readSigners(walletAddress)).map((s) => s.publicKey.toLowerCase());
+}
+
+/**
+ * Refuse to report success if adding a signer *removed* one.
+ *
+ * `assertPrimaryUnchanged` compares this device's stored binding, which is a
+ * local read — it cannot see the contract's signer map at all. This is the
+ * on-chain half.
+ *
+ * It exists because of a defect in already-deployed wallets. `add_signer` used
+ * to allocate its index as `next_index = len()`, so after a middle
+ * `remove_signer` the next add wrote over a live slot and silently replaced
+ * another key. #1176 fixed that in the contract source on 2026-10-22 (#1233) by
+ * allocating from a monotonic counter — but wallets are not upgradeable, so
+ * every wallet deployed before that still has the old code and always will.
+ *
+ * Neither app exposes `remove_signer` today, so reaching the sparse-index state
+ * takes a deliberate SDK call; this is cheap insurance rather than a likely
+ * path. The cost of missing it is a passkey that silently stops being a signer
+ * while the screen says the new one was added.
+ */
+export class SignerLostError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'SignerLostError';
+  }
+}
+
+function assertNoSignerLost(before: readonly string[], after: readonly string[]): void {
+  const survived = new Set(after);
+  const lost = before.filter((key) => !survived.has(key));
+  if (lost.length === 0) return;
+  throw new SignerLostError(
+    'Adding this passkey removed an existing signer from the wallet, which means this wallet ' +
+      'predates the fix for that contract bug. Do not rely on the passkey that disappeared — ' +
+      'check Settings → Passkeys against the chain before spending.',
+  );
+}
+
+/**
+ * Settling is best effort: the signer is already added, so a flaky RPC read
+ * must not be reported as a failed add. A lost signer is the one exception —
+ * that is a correctness warning the user has to see.
+ */
+function rethrowIfSignerLost(fallback: AdditionalSigner) {
+  return (error: unknown): AdditionalSigner => {
+    if (error instanceof SignerLostError) throw error;
+    return fallback;
+  };
+}
+
 /** Mark `signer` active if the chain lists its key; otherwise return it unchanged. */
-async function settleAgainstChain(walletAddress: string, signer: AdditionalSigner): Promise<AdditionalSigner> {
+async function settleAgainstChain(
+  walletAddress: string,
+  signer: AdditionalSigner,
+  keysBefore?: readonly string[],
+): Promise<AdditionalSigner> {
   const onChain = await readSigners(walletAddress);
+  if (keysBefore) {
+    assertNoSignerLost(keysBefore, onChain.map((s) => s.publicKey.toLowerCase()));
+  }
   const match = onChain.find((s) => s.publicKey.toLowerCase() === signer.publicKey);
   if (!match) return signer;
   const active: AdditionalSigner = { ...signer, status: 'active', signerIndex: match.index };
@@ -161,6 +222,11 @@ export async function addPasskeySigner(): Promise<AddSignerOutcome> {
   };
   await recordAdditionalSigner(pending);
 
+  // Snapshot the signer set before the write so the settle below can tell an
+  // addition from a replacement. A failure to read it must not block adding a
+  // passkey, so an unreachable chain simply means no comparison is made.
+  const keysBefore = await onChainSignerKeys(primary.address).catch(() => undefined);
+
   let submitted = false;
   let hash: string;
   try {
@@ -175,7 +241,7 @@ export async function addPasskeySigner(): Promise<AddSignerOutcome> {
   }
 
   await assertPrimaryUnchanged(primary);
-  const signer = await settleAgainstChain(primary.address, pending).catch(() => pending);
+  const signer = await settleAgainstChain(primary.address, pending, keysBefore).catch(rethrowIfSignerLost(pending));
   return { walletAddress: primary.address, signer, hash };
 }
 
@@ -193,8 +259,9 @@ export async function finishPendingSigner(credentialId: string): Promise<AddSign
   const settled = await settleAgainstChain(primary.address, pending);
   if (settled.status === 'active') return { walletAddress: primary.address, signer: settled };
 
+  const keysBefore = await onChainSignerKeys(primary.address).catch(() => undefined);
   const hash = await submitAddSigner(primary.address, Buffer.from(pending.publicKey, 'hex'), () => undefined);
   await assertPrimaryUnchanged(primary);
-  const signer = await settleAgainstChain(primary.address, pending).catch(() => pending);
+  const signer = await settleAgainstChain(primary.address, pending, keysBefore).catch(rethrowIfSignerLost(pending));
   return { walletAddress: primary.address, signer, hash };
 }
